@@ -1,0 +1,37 @@
+/* /pocketmode/assets/pocketmode.css */
+.pm-player-name { font-weight: 600; }
+.pm-score { font-size: 48px; font-weight: 800; line-height: 1; }
+
+.pm-balls-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: .5rem;
+}
+@media (max-width: 576px) {
+  .pm-balls-grid { grid-template-columns: repeat(5, 1fr); }
+}
+
+.pm-ball {
+  aspect-ratio: 1/1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  user-select: none;
+  cursor: pointer;
+  transition: transform .08s ease;
+  background: #e9f5ff;
+}
+.pm-ball:active { transform: scale(.96); }
+.pm-ball.disabled { opacity: .35; pointer-events: none; filter: grayscale(0.8); }
+
+.pm-log {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: .75rem;
+  border-radius: .5rem;
+  height: 180px;
+  overflow: auto;
+  font-size: .9rem;
+}
