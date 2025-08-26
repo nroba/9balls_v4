@@ -1,4 +1,27 @@
-<?php // /index.php (menu) ?>
+<?php
+// /index.php（自動版）— filemtimeで ?v= を自動付与
+// v(): 単一ファイルの更新時刻、v_multi(): 複数ファイルの最大更新時刻
+function v(string $relPath): string {
+  $p = __DIR__ . '/' . ltrim($relPath, '/');
+  $t = @filemtime($p);
+  return $t ? (string)$t : '1';
+}
+function v_multi(array $paths): string {
+  $max = 0;
+  foreach ($paths as $rel) {
+    $t = @filemtime(__DIR__ . '/' . ltrim($rel, '/'));
+    if ($t && $t > $max) $max = $t;
+  }
+  return $max ? (string)$max : '1';
+}
+
+// Pocketmode一式（index/css/js）の最新版時刻をリンクに付与
+$POCKET_VER = v_multi([
+  'pocketmode/index.php',
+  'pocketmode/assets/pocketmode.css',
+  'pocketmode/assets/pocketmode.js',
+]);
+?>
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -14,8 +37,8 @@
   <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
-  <!-- 分離したCSS -->
-  <link href="assets/menu.css?v=20250826" rel="stylesheet">
+  <!-- メニューCSSに ?v=更新時刻 を付与 -->
+  <link href="assets/menu.css?v=<?= v('assets/menu.css') ?>" rel="stylesheet">
 </head>
 <body>
   <main class="menu-card">
@@ -30,21 +53,25 @@
     </header>
 
     <section class="menu-grid mb-3">
+      <!-- 日別まとめ（一覧/集計） -->
       <a href="match_results/match_results.php" class="btn btn-info text-white menu-btn">
         <span class="menu-icon">📊</span>
         <span>日別まとめの閲覧</span>
       </a>
 
-      <a href="pocketmode/index.php" class="btn btn-success text-white menu-btn">
+      <!-- Pocketmode（自動で ?v= を付与） -->
+      <a href="pocketmode/index.php?v=<?= $POCKET_VER ?>" class="btn btn-success text-white menu-btn">
         <span class="menu-icon">🎯</span>
         <span>Pocketmode（1ゲーム記録）</span>
       </a>
 
+      <!-- 日別登録 -->
       <a href="daily/daily.php" class="btn btn-primary text-white menu-btn">
         <span class="menu-icon">📝</span>
         <span>日別登録フォーム</span>
       </a>
 
+      <!-- マスタ設定：settings.php か admin/masters.php を運用に合わせて -->
       <a href="settings.php" class="btn btn-secondary text-white menu-btn">
         <span class="menu-icon">⚙</span>
         <span>各種マスタ設定</span>
@@ -58,6 +85,7 @@
   </main>
 
   <script>
+    // PWA用（存在する時だけ登録）
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch(()=>{});
     }

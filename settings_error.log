@@ -1,0 +1,15 @@
+[26-Aug-2025 20:07:37 Asia/Tokyo] [UNCAUGHT] SQLSTATE[42S22]: Column not found: 1054 Unknown column 'created_at' in 'field list'
+#0 /home/c0603899/public_html/billiards.zeniroba.com/settings2.php(177): PDO->query()
+#1 {main}
+[26-Aug-2025 20:07:41 Asia/Tokyo] [UNCAUGHT] SQLSTATE[42S22]: Column not found: 1054 Unknown column 'created_at' in 'field list'
+#0 /home/c0603899/public_html/billiards.zeniroba.com/settings2.php(177): PDO->query()
+#1 {main}
+[26-Aug-2025 20:23:46 Asia/Tokyo] [UNCAUGHT] SQLSTATE[42S22]: Column not found: 1054 Unknown column 'created_at' in 'field list'
+#0 /home/c0603899/public_html/billiards.zeniroba.com/settings2.php(178): PDO->query()
+#1 {main}
+[26-Aug-2025 20:26:23 Asia/Tokyo] [UNCAUGHT] SQLSTATE[42S22]: Column not found: 1054 Unknown column 'code' in 'field list'
+#0 /home/c0603899/public_html/billiards.zeniroba.com/settings2.php(179): PDO->query()
+#1 {main}
+[26-Aug-2025 20:28:40 Asia/Tokyo] [UNCAUGHT] SQLSTATE[42S22]: Column not found: 1054 Unknown column 'code' in 'field list'
+#0 /home/c0603899/public_html/billiards.zeniroba.com/settings2.php(179): PDO->query()
+#1 {main}
