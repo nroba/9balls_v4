@@ -1,379 +1,505 @@
-// /pocketmode/assets/pocketmode.js  (堅牢化版)
-// - masters 読み込み失敗/空の可視化
-// - セレクト未選択なら自動で先頭を選択
-// - 登録直前に再チェックして足りない項目を具体表示
-// - A/B ルール計算は従来通り
+/* /pocketmode/assets/pocketmode.js
+   Pocketmode 本体（DOM完了後に初期化・ジェスチャー統一の堅牢版）
+   - マスタ取得: /pocketmode/api/masters.php
+   - 2列グリッド（ball1..9）
+   - シングルタップ: 未→P1→P2→未
+   - ダブルタップ/ダブルクリック: 倍率 ×1→×2→×3→×1
+   - スワイプ(左右): 左=P1, 右=P2（HTML5 DnDは全無効）
+   - 登録: /pocketmode/api/finalize_game.php?debug=1 に JSON POST
+   - 9番の取得者を勝者とし、score1/score2 を自動設定
+*/
 
-const grid       = document.getElementById("ballGrid");
-const popup      = document.getElementById("popup");
-const resetBtn   = document.getElementById("resetBtn");
-const registBtn  = document.getElementById("registBtn");
-const ruleSelect = document.getElementById("ruleSelect");
+(() => {
+  "use strict";
+  const DEBUG = location.search.includes("debug=1");
+  const log = (...a) => { if (DEBUG) console.log("[pm]", ...a); };
 
-let score1 = 0;
-let score2 = 0;
-const ballState = {}; // { [num]: { swiped, assigned(1|2|null), multiplier(1|2), wrapper:El } }
-
-// -------------- helpers --------------
-const toInt = (v) => {
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? n : null;
-};
-const normalizeSelect = (sel) => {
-  if (!sel) return null;
-  if (!sel.value || sel.selectedIndex < 0) {
-    if (sel.options.length > 0) sel.selectedIndex = 0; // 自動補正
-  }
-  return toInt(sel.value);
-};
-function playSoundOverlap(src) {
-  try { new Audio(src).play().catch(()=>{}); } catch(_){}
-}
-function restartAnimation(el, className) {
-  el.classList.remove("roll-left","roll-right");
-  void el.offsetWidth;
-  el.classList.add(className);
-  el.style.opacity = "1";
-}
-function toggleSettings() {
-  const s = document.getElementById("gameSettings");
-  s.style.display = s.style.display === "none" ? "block" : "none";
-}
-function updateScoreDisplay() {
-  document.getElementById("score1").textContent = score1;
-  document.getElementById("score2").textContent = score2;
-}
-function showPopup(text) {
-  popup.textContent = text;
-  popup.style.display = "block";
-  setTimeout(()=>{ popup.style.display="none"; }, 1000);
-}
-function updateMultiplierLabel(num) {
-  const label = document.getElementById(`multi${num}`);
-  const mult = ballState[num].multiplier;
-  if (mult === 2) {
-    label.textContent = "×2";
-    label.style.display = "block";
-    label.classList.remove("bounce");
-    void label.offsetWidth;
-    label.classList.add("bounce");
-  } else {
-    label.style.display = "none";
-    label.classList.remove("bounce");
-  }
-}
-function getSelectedRuleCode() {
-  const opt = ruleSelect.options[ruleSelect.selectedIndex];
-  return (opt && opt.dataset && opt.dataset.code) ? opt.dataset.code : "B";
-}
-function recalculateScores() {
-  score1 = 0; score2 = 0;
-  const ruleCode = getSelectedRuleCode(); // 'A' or 'B'(others)
-  for (let j=1; j<=9; j++) {
-    const st = ballState[j];
-    if (!st) continue;
-    if (st.swiped && st.assigned) {
-      let p = 0;
-      if (ruleCode === "A") {
-        if (j===9) p=2;
-        else if (j%2===1) p=1;
-        p *= st.multiplier; // ×2はAのみ
-      } else {
-        p = (j===9)?2:1;
-      }
-      if (st.assigned===1) score1 += p;
-      if (st.assigned===2) score2 += p;
-    }
-  }
-  updateScoreDisplay();
-}
-function resetAll() {
-  score1=0; score2=0; updateScoreDisplay();
-  for (let i=1; i<=9; i++) {
-    const st = ballState[i];
-    if (!st) continue;
-    const w = st.wrapper;
-    w.classList.remove("roll-left","roll-right");
-    w.style.opacity = "0.5";
-    st.swiped=false; st.assigned=null; st.multiplier=1;
-    updateMultiplierLabel(i);
-  }
-}
-function updateLabels() {
-  const p1 = document.getElementById("player1");
-  const p2 = document.getElementById("player2");
-  document.getElementById("label1").textContent = p1.selectedOptions[0]?.textContent || "Player 1";
-  document.getElementById("label2").textContent = p2.selectedOptions[0]?.textContent || "Player 2";
-}
-function attachPlayerChangeListeners() {
-  document.getElementById("player1").addEventListener("change", () => {
-    updateLabels();
-    localStorage.setItem("player1_id", document.getElementById("player1").value);
-  });
-  document.getElementById("player2").addEventListener("change", () => {
-    updateLabels();
-    localStorage.setItem("player2_id", document.getElementById("player2").value);
-  });
-  document.getElementById("shop").addEventListener("change", () => {
-    localStorage.setItem("shop_id", document.getElementById("shop").value);
-  });
-  ruleSelect.addEventListener("change", () => {
-    localStorage.setItem("rule_id", ruleSelect.value);
-    recalculateScores();
-  });
-}
-function hideActions(){ const b=document.getElementById("postRegistActions"); if(b) b.style.display="none"; }
-window.toggleSettings = toggleSettings;
-window.resetAll = resetAll;
-window.hideActions = hideActions;
-
-// -------------- 登録 --------------
-registBtn.addEventListener("click", () => {
-  registBtn.classList.add("clicked");
-  setTimeout(()=>registBtn.classList.remove("clicked"), 550);
-
-  const p1Sel = document.getElementById("player1");
-  const p2Sel = document.getElementById("player2");
-  const shopSel = document.getElementById("shop");
-
-  // 未選択なら先頭を自動選択して再取得
-  const p1Id   = normalizeSelect(p1Sel);
-  const p2Id   = normalizeSelect(p2Sel);
-  const shopId = normalizeSelect(shopSel);
-  const ruleId = normalizeSelect(ruleSelect);
-
-  const dateStr = document.getElementById("dateInput").value || new Date().toISOString().slice(0,10);
-
-  const missing = [];
-  if (!dateStr) missing.push("日付");
-  if (!ruleId)  missing.push("ルール");
-  if (!shopId)  missing.push("店舗");
-  if (!p1Id)    missing.push("プレイヤー1");
-  if (!p2Id)    missing.push("プレイヤー2");
-
-  if (missing.length) {
-    showPopup("未選択: " + missing.join(" / "));
-    alert("未選択: " + missing.join(" / ") + "\n『各種マスタ設定』で登録済みか確認し、ページを再読み込みしてください。");
-    console.warn("[register blocked] values:", {dateStr, ruleId, shopId, p1Id, p2Id});
-    return;
+  // ====== 要素参照（DOM読み込み後に取得） ======
+  const els = {
+    date: null, rule: null, shop: null, p1: null, p2: null,
+    label1: null, label2: null, s1: null, s2: null,
+    grid: null, reset: null, regist: null, postBox: null, popup: null,
+  };
+  function grabEls(){
+    els.date   = document.getElementById("dateInput");
+    els.rule   = document.getElementById("ruleSelect");
+    els.shop   = document.getElementById("shop");
+    els.p1     = document.getElementById("player1");
+    els.p2     = document.getElementById("player2");
+    els.label1 = document.getElementById("label1");
+    els.label2 = document.getElementById("label2");
+    els.s1     = document.getElementById("score1");
+    els.s2     = document.getElementById("score2");
+    els.grid   = document.getElementById("ballGrid");
+    els.reset  = document.getElementById("resetBtn");
+    els.regist = document.getElementById("registBtn");
+    els.postBox= document.getElementById("postRegistActions");
+    els.popup  = document.getElementById("popup");
+    if (!els.grid) log("WARN: #ballGrid が見つかりません。HTMLのIDをご確認ください。");
   }
 
-  // 勝敗フラグ（同点はP1勝ち）
-  const score1Flag = (score1 > score2) ? 1 : (score1 === score2 ? 1 : 0);
-  const score2Flag = (score1 > score2) ? 0 : (score1 === score2 ? 0 : 1);
-
-  const payload = {
-    game_id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
-    date: dateStr,
-    rule_id: ruleId,
-    shop_id: shopId,
-    player1_id: p1Id,
-    player2_id: p2Id,
-    score1: score1Flag,
-    score2: score2Flag,
-    balls: Object.fromEntries(
-      Object.entries(ballState).map(([k, v]) => [k, { assigned: v.assigned, multiplier: v.multiplier }])
-    )
+  // ====== 状態 ======
+  const state = {
+    // balls[n] = { assigned: null|1|2, multiplier: 1..3 }
+    balls: Array.from({length:10}, () => ({ assigned: null, multiplier: 1 })), // index 0 未使用
+    players: [], shops: [], rules: [],
   };
 
-  fetch("/pocketmode/api/finalize_game.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (data && data.success) {
-      showPopup("登録しました！");
-      resetAll();
-      const box = document.getElementById("postRegistActions");
-      if (box) box.style.display = "flex";
-    } else {
-      console.error("保存エラー:", data);
-      showPopup("保存に失敗しました");
-    }
-  })
-  .catch(err => {
-    console.error("送信エラー", err);
-    showPopup("送信に失敗しました");
-  });
-});
+  // ====== ユーティリティ ======
+  const z2 = (n) => String(n).padStart(2, "0");
+  const todayYmd = () => {
+    const d = new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`;
+  };
 
-// -------------- masters 読み込み --------------
-fetch("/pocketmode/api/masters.php")
-  .then(res => {
-    if (!res.ok) throw new Error("masters http " + res.status);
-    return res.json();
-  })
-  .then(data => {
-    const shopSel = document.getElementById("shop");
-    const p1Sel   = document.getElementById("player1");
-    const p2Sel   = document.getElementById("player2");
+  function showPopup(msg, ms=1200){
+    if(!els.popup) return;
+    els.popup.textContent = msg;
+    els.popup.style.display = "block";
+    clearTimeout(showPopup._t);
+    showPopup._t = setTimeout(()=>{ els.popup.style.display = "none"; }, ms);
+  }
 
-    // ルール
-    ruleSelect.innerHTML = "";
-    if (Array.isArray(data.rules)) {
-      data.rules.forEach((r, idx) => {
-        const opt = document.createElement("option");
-        // 万が一 r.id が無い環境でも表示はできるように
-        opt.value = (r.id ?? r.code ?? "").toString();
-        opt.dataset.id = (r.id ?? "").toString();   // ← 数値IDを別属性に保持
-        if (r.code) opt.dataset.code = r.code;      // A/B 等
-        opt.textContent = (r.code ? `${r.code}：` : "") + r.name;
-          if (idx === 0) opt.selected = true;
-          ruleSelect.appendChild(opt);
-        if (idx === 0) opt.selected = true;
-        ruleSelect.appendChild(opt);
-      });
-    }
+  function saveSelectionToLocal(){
+    try{
+      localStorage.setItem("rule_id",    els.rule?.value ?? "");
+      localStorage.setItem("shop_id",    els.shop?.value ?? "");
+      localStorage.setItem("player1_id", els.p1?.value ?? "");
+      localStorage.setItem("player2_id", els.p2?.value ?? "");
+      localStorage.setItem("date",       els.date?.value ?? "");
+    }catch(_){}
+  }
+  function restoreSelectionFromLocal(){
+    try{
+      const x = (k)=> localStorage.getItem(k);
+      if(els.rule && x("rule_id"))    els.rule.value = x("rule_id");
+      if(els.shop && x("shop_id"))    els.shop.value = x("shop_id");
+      if(els.p1   && x("player1_id")) els.p1.value   = x("player1_id");
+      if(els.p2   && x("player2_id")) els.p2.value   = x("player2_id");
+      if(els.date && x("date"))       els.date.value = x("date");
+    }catch(_){}
+  }
 
-    // 店舗
-    shopSel.innerHTML = "";
-    if (Array.isArray(data.shops)) {
-      data.shops.forEach((s, idx) => {
-        const option = document.createElement("option");
-        option.value = s.id;
-        option.textContent = s.name;
-        if (idx === 0) option.selected = true;
-        shopSel.appendChild(option);
-      });
-    }
+  function computeScores(){
+    // 9番を取った側を勝者とする（なければ 0-0）
+    const last = state.balls[9]?.assigned ?? null;
+    return { s1: last === 1 ? 1 : 0, s2: last === 2 ? 1 : 0 };
+  }
 
-    // プレイヤー
-    p1Sel.innerHTML = "";
-    p2Sel.innerHTML = "";
-    if (Array.isArray(data.players)) {
-      data.players.forEach((u, idx) => {
-        const opt1 = document.createElement("option");
-        opt1.value = u.id; opt1.textContent = u.name;
-        if (idx === 0) opt1.selected = true;
-        p1Sel.appendChild(opt1);
+  function updateScoreboard(){
+    // 表示は「取った玉の個数」
+    const cnt1 = state.balls.reduce((a,b,i)=> i>0 && b.assigned===1 ? a+1 : a, 0);
+    const cnt2 = state.balls.reduce((a,b,i)=> i>0 && b.assigned===2 ? a+1 : a, 0);
+    if (els.s1) els.s1.textContent = String(cnt1);
+    if (els.s2) els.s2.textContent = String(cnt2);
+  }
 
-        const opt2 = document.createElement("option");
-        opt2.value = u.id; opt2.textContent = u.name;
-        if (idx === 1) opt2.selected = true;
-        p2Sel.appendChild(opt2);
-      });
-    }
+  function updatePlayerLabels(){
+    const p1t = els.p1?.selectedOptions[0]?.textContent || "Player 1";
+    const p2t = els.p2?.selectedOptions[0]?.textContent || "Player 2";
+    if (els.label1) els.label1.textContent = p1t;
+    if (els.label2) els.label2.textContent = p2t;
+  }
 
-    // localStorage 復元（値が無効なら自動で先頭に補正）
-    const p1LS = localStorage.getItem("player1_id");
-    const p2LS = localStorage.getItem("player2_id");
-    const shLS = localStorage.getItem("shop_id");
-    const rlLS = localStorage.getItem("rule_id");
+  function ensureFirstSelected(sel){
+    if (!sel) return;
+    if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
+  }
 
-    if (p1LS && [...p1Sel.options].some(o => o.value === p1LS)) p1Sel.value = p1LS;
-    if (p2LS && [...p2Sel.options].some(o => o.value === p2LS)) p2Sel.value = p2LS;
-    if (shLS && [...shopSel.options].some(o => o.value === shLS)) shopSel.value = shLS;
-    if (rlLS && [...ruleSelect.options].some(o => o.value === rlLS)) ruleSelect.value = rlLS;
+  function makeOption(id, name, code){
+    const opt = document.createElement("option");
+    opt.value = String(id);
+    opt.dataset.id = String(id);
+    if (code) opt.dataset.code = String(code);
+    opt.textContent = code ? `${code}：${name}` : name;
+    return opt;
+  }
 
-    // ここで最終的に未選択なら自動補正
-    normalizeSelect(ruleSelect);
-    normalizeSelect(shopSel);
-    normalizeSelect(p1Sel);
-    normalizeSelect(p2Sel);
+  // ====== マスタ取得 ======
+  async function loadMasters(){
+    try{
+      const res = await fetch("/pocketmode/api/masters.php", { cache:"no-store" });
+      const data = await res.json();
 
-    attachPlayerChangeListeners();
-    updateLabels();
-    recalculateScores();
-
-    // 未登録ガイド
-    const warn = [];
-    if (!data.players || data.players.length === 0) warn.push("プレイヤー");
-    if (!data.shops   || data.shops.length   === 0) warn.push("店舗");
-    if (!data.rules   || data.rules.length   === 0) warn.push("ルール");
-
-    console.log("[masters]", {
-      players: data.players?.length ?? 0,
-      shops:   data.shops?.length   ?? 0,
-      rules:   data.rules?.length   ?? 0,
-      selected: {
-        ruleId: ruleSelect.value, shopId: shopSel.value, p1: p1Sel.value, p2: p2Sel.value
+      // players
+      if(Array.isArray(data.players) && els.p1 && els.p2){
+        els.p1.innerHTML = ""; els.p2.innerHTML = "";
+        state.players = data.players;
+        data.players.forEach((p)=> {
+          els.p1.appendChild(makeOption(p.id, p.name));
+          els.p2.appendChild(makeOption(p.id, p.name));
+        });
       }
+
+      // shops
+      if(Array.isArray(data.shops) && els.shop){
+        els.shop.innerHTML = "";
+        state.shops = data.shops;
+        data.shops.forEach((s) => {
+          els.shop.appendChild(makeOption(s.id, s.name));
+        });
+      }
+
+      // rules
+      if(Array.isArray(data.rules) && els.rule){
+        els.rule.innerHTML = "";
+        state.rules = data.rules;
+        data.rules.forEach((r)=> {
+          els.rule.appendChild(makeOption(r.id, r.name, r.code));
+        });
+      }
+    }catch(err){
+      console.warn("masters load failed:", err);
+    }
+
+    // 選択復元（存在しなければ先頭を選ぶ）
+    restoreSelectionFromLocal();
+    ensureFirstSelected(els.rule);
+    ensureFirstSelected(els.shop);
+    ensureFirstSelected(els.p1);
+    ensureFirstSelected(els.p2);
+    updatePlayerLabels();
+  }
+
+  // ====== グリッド生成（1..9） ======
+  function buildGrid(){
+    if (!els.grid) return;
+    els.grid.innerHTML = "";
+
+    for(let i=1; i<=9; i++){
+      // 状態初期化
+      state.balls[i] = { assigned: null, multiplier: 1 };
+
+      const wrap = document.createElement("div");
+      wrap.className = "ball-wrapper";
+      wrap.dataset.ball = String(i);
+      // ネイティブHTML5 DnD完全無効化（競合防止）
+      wrap.setAttribute("draggable","false");
+
+      const img = document.createElement("img");
+      img.className = "ball";
+      img.src = `/images/ball${i}.png`;
+      img.alt = `Ball ${i}`;
+      img.setAttribute("draggable","false"); // ← 重要
+
+      const badge = document.createElement("div");
+      badge.className = "ball-multiplier";
+      badge.textContent = "×1";
+      badge.dataset.v = "1"; // 1のときはCSSで非表示
+
+      wrap.appendChild(img);
+      wrap.appendChild(badge);
+      els.grid.appendChild(wrap);
+
+      // すべての操作（シングル/ダブル/スワイプ）を1本のハンドラで処理
+      attachGesture(wrap, i);
+    }
+  }
+
+  // ====== UI更新 ======
+  function refreshBallUI(n){
+    const wrap = els.grid?.querySelector(`.ball-wrapper[data-ball="${n}"]`);
+    if (!wrap) return;
+    const b = state.balls[n];
+
+    // 選択スタイル
+    if (b.assigned === 1 || b.assigned === 2) wrap.classList.add("is-active");
+    else wrap.classList.remove("is-active");
+
+    // 倍率バッジ
+    const badge = wrap.querySelector(".ball-multiplier");
+    const v = Math.max(1, Number(b.multiplier||1));
+    badge.textContent = `×${v}`;
+    badge.dataset.v = String(v);
+
+    updateScoreboard();
+  }
+
+  function cycleAssign(n){
+    const cur = state.balls[n].assigned;
+    const next = (cur === null) ? 1 : (cur === 1 ? 2 : null);
+    state.balls[n].assigned = next;
+    refreshBallUI(n);
+  }
+
+  function incMultiplier(n){
+    const cur = state.balls[n].multiplier || 1;
+    const next = (cur % 3) + 1; // 1→2→3→1
+    state.balls[n].multiplier = next;
+    refreshBallUI(n);
+  }
+
+  // ====== ジェスチャー（Pointer優先。なければ Touch/Mouse） ======
+  function attachGesture(el, n){
+    const hasPointer = "PointerEvent" in window;
+
+    if (hasPointer) {
+      bindPointer(el, n);
+    } else {
+      bindFallback(el, n); // 古い環境
+    }
+  }
+
+  function bindPointer(el, n){
+    const SWIPE_X = 40;   // スワイプ閾値(px)
+    const MOVE_MIN = 8;   // 微小移動の無視
+    const TAP_MS = 280;   // ダブルタップ判定
+
+    let lastTapAt = 0;
+
+    el.addEventListener("pointerdown", (ev) => {
+      // スクロール・長押しメニューなど抑止
+      if (ev.pointerType !== "mouse") ev.preventDefault();
+
+      const start = { x: ev.clientX, y: ev.clientY, t: Date.now() };
+      let moved = false;
+      const pointerId = ev.pointerId;
+
+      // double tap 判定
+      const deltaT = start.t - lastTapAt;
+      if (deltaT > 0 && deltaT < TAP_MS) {
+        lastTapAt = 0; // 消費
+        incMultiplier(n);
+        return;
+      }
+
+      const mm = (e) => {
+        if (e.pointerId !== pointerId) return;
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
+        if (e.pointerType !== "mouse") e.preventDefault();
+      };
+      const mu = (e) => {
+        if (e.pointerId !== pointerId) return;
+        document.removeEventListener("pointermove", mm, {passive:false});
+        document.removeEventListener("pointerup", mu, {passive:false});
+
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+
+        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
+          // スワイプ：左右で割当
+          state.balls[n].assigned = dx > 0 ? 2 : 1;
+          refreshBallUI(n);
+        } else {
+          // タップ（シングル）
+          lastTapAt = Date.now();
+          cycleAssign(n);
+        }
+      };
+
+      try { el.setPointerCapture(pointerId); } catch(_){}
+      document.addEventListener("pointermove", mm, {passive:false});
+      document.addEventListener("pointerup", mu, {passive:false});
     });
+  }
 
-    if (warn.length) {
-      registBtn.style.pointerEvents = "none";
-      registBtn.style.opacity = "0.5";
-      alert("マスタ未登録: " + warn.join(" / ") + "。まず『各種マスタ設定』で登録してください。");
-    } else {
-      registBtn.style.pointerEvents = "";
-      registBtn.style.opacity = "";
+  function bindFallback(el, n){
+    // Touch + Mouse 併用（古いブラウザ用）
+    const SWIPE_X = 40, MOVE_MIN = 8, TAP_MS = 280;
+    let lastTapAt = 0;
+
+    // touch
+    el.addEventListener("touchstart", (ev) => {
+      if (!ev.changedTouches || ev.changedTouches.length === 0) return;
+      const t0 = ev.changedTouches[0];
+      const start = { x: t0.clientX, y: t0.clientY, t: Date.now() };
+      let moved = false;
+      ev.preventDefault();
+
+      const deltaT = start.t - lastTapAt;
+      if (deltaT > 0 && deltaT < TAP_MS) { lastTapAt = 0; incMultiplier(n); return; }
+
+      const tm = (e) => {
+        const t = e.changedTouches[0];
+        const dx = t.clientX - start.x;
+        const dy = t.clientY - start.y;
+        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
+        e.preventDefault();
+      };
+      const tu = (e) => {
+        document.removeEventListener("touchmove", tm, {passive:false});
+        document.removeEventListener("touchend", tu, {passive:false});
+        const t = e.changedTouches[0]; if (!t) return;
+        const dx = t.clientX - start.x;
+        const dy = t.clientY - start.y;
+        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
+          state.balls[n].assigned = dx > 0 ? 2 : 1;
+          refreshBallUI(n);
+        } else {
+          lastTapAt = Date.now();
+          cycleAssign(n);
+        }
+      };
+      document.addEventListener("touchmove", tm, {passive:false});
+      document.addEventListener("touchend", tu, {passive:false});
+    }, {passive:false});
+
+    // mouse
+    el.addEventListener("mousedown", (ev) => {
+      const start = { x: ev.clientX, y: ev.clientY, t: Date.now() };
+      let moved = false;
+
+      const deltaT = start.t - lastTapAt;
+      if (deltaT > 0 && deltaT < TAP_MS) { lastTapAt = 0; incMultiplier(n); return; }
+
+      const mm = (e) => {
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
+        e.preventDefault();
+      };
+      const mu = (e) => {
+        document.removeEventListener("mousemove", mm);
+        document.removeEventListener("mouseup", mu);
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
+          state.balls[n].assigned = dx > 0 ? 2 : 1;
+          refreshBallUI(n);
+        } else {
+          lastTapAt = Date.now();
+          cycleAssign(n);
+        }
+      };
+      document.addEventListener("mousemove", mm);
+      document.addEventListener("mouseup", mu);
+    });
+  }
+
+  // ====== リセット ======
+  function resetAll(){
+    for(let i=1; i<=9; i++){
+      state.balls[i].assigned = null;
+      state.balls[i].multiplier = 1;
+      refreshBallUI(i);
     }
-  })
-  .catch(err => {
-    console.error("masters load error:", err);
-    alert("マスタ読み込みに失敗しました。/pocketmode/api/masters.php を確認してください。");
-  });
+    updateScoreboard();
+    if (els.postBox) els.postBox.style.display = "none";
+  }
 
-// -------------- ボールUI --------------
-for (let i=1; i<=9; i++) {
-  const wrapper = document.createElement("div");
-  wrapper.classList.add("ball-wrapper");
-  wrapper.style.opacity = "0.5";
+  // ====== 登録 ======
+  function normalizeSelect(sel){
+    if (!sel) return null;
+    if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
+    let id = Number.parseInt(sel.value, 10);
+    if (!Number.isFinite(id)) {
+      const opt = sel.options[sel.selectedIndex];
+      id = Number.parseInt(opt?.dataset?.id ?? "", 10);
+    }
+    return Number.isFinite(id) ? id : null;
+  }
 
-  const img = document.createElement("img");
-  img.src = `/images/ball${i}.png`;
-  img.classList.add("ball");
-  img.dataset.number = i;
+  function gatherPayload(){
+    const dateStr = els.date?.value || todayYmd();
+    const ruleId  = normalizeSelect(els.rule);
+    const shopId  = normalizeSelect(els.shop);
+    const p1Id    = normalizeSelect(els.p1);
+    const p2Id    = normalizeSelect(els.p2);
+    const { s1, s2 } = computeScores();
 
-  const label = document.createElement("div");
-  label.classList.add("ball-multiplier");
-  label.id = `multi${i}`;
-  label.textContent = "";
-  label.style.display = "none";
+    const balls = {};
+    for(let i=1;i<=9;i++){
+      balls[i] = {
+        assigned: state.balls[i].assigned,   // 1|2|null
+        multiplier: state.balls[i].multiplier // 1..3
+      };
+    }
 
-  wrapper.appendChild(img);
-  wrapper.appendChild(label);
-  grid.appendChild(wrapper);
+    return {
+      date: dateStr,
+      rule_id: ruleId,
+      shop_id: shopId,
+      player1_id: p1Id,
+      player2_id: p2Id,
+      score1: s1,
+      score2: s2,
+      balls
+    };
+  }
 
-  ballState[i] = { swiped:false, assigned:null, multiplier:1, wrapper };
+  async function submit(){
+    const payload = gatherPayload();
+    // 未選択チェック（フロント側）
+    const missing = [];
+    if (!payload.date) missing.push("日付");
+    if (!payload.rule_id) missing.push("ルール");
+    if (!payload.shop_id) missing.push("店舗");
+    if (!payload.player1_id) missing.push("プレイヤー1");
+    if (!payload.player2_id) missing.push("プレイヤー2");
+    if (missing.length){
+      alert("未選択：" + missing.join(" / "));
+      return;
+    }
+    if (payload.player1_id === payload.player2_id){
+      alert("同一プレイヤー同士は登録できません");
+      return;
+    }
 
-  let startX = null;
-  const onStart = (x) => { startX = x; };
-  const onEnd = (x) => {
-    if (startX === null) return;
-    const dx = x - startX;
-    if (Math.abs(dx) < 30) return;
+    try{
+      const res = await fetch("/pocketmode/api/finalize_game.php?debug=1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { console.error("raw response:", text); throw new Error("Invalid JSON"); }
 
-    const prev = ballState[i].assigned;
-    const sw   = ballState[i].swiped;
-    const w    = ballState[i].wrapper;
-
-    if (!sw) {
-      if (dx < -30) { ballState[i].assigned = 1; restartAnimation(w,"roll-left"); }
-      else if (dx > 30) { ballState[i].assigned = 2; restartAnimation(w,"roll-right"); }
-      ballState[i].swiped = true;
-      playSoundOverlap("sounds/swipe.mp3");
-    } else {
-      if ((prev===1 && dx>30) || (prev===2 && dx<-30)) {
-        ballState[i].assigned=null;
-        ballState[i].swiped=false;
-        w.classList.remove("roll-left","roll-right");
-        w.style.opacity="0.5";
-        playSoundOverlap("sounds/cancel.mp3");
+      if (data && data.success){
+        showPopup("登録しました！");
+        resetAll();
+        if (els.postBox) els.postBox.style.display = "flex";
+      } else {
+        console.error("保存エラー:", data);
+        alert("保存に失敗しました。\n" + (data && data.error ? data.error : "詳細不明")
+              + (data && data.log_path ? "\nlog: " + data.log_path : ""));
+        showPopup("保存に失敗しました");
       }
+    }catch(err){
+      console.error("送信エラー:", err);
+      showPopup("送信に失敗しました");
+      alert("送信に失敗しました。\n" + (err?.message || err));
     }
-    recalculateScores();
-  };
+  }
 
-  wrapper.addEventListener("touchstart", (e)=>onStart(e.touches[0].clientX));
-  wrapper.addEventListener("touchend",   (e)=>onEnd(e.changedTouches[0].clientX));
-  wrapper.addEventListener("mousedown",  (e)=>onStart(e.clientX));
-  wrapper.addEventListener("mouseup",    (e)=>onEnd(e.clientX));
+  // ====== 設定表示のトグル ======
+  function toggleSettings(){
+    const box = document.getElementById("gameSettings");
+    if (!box) return;
+    box.style.display = (box.style.display === "none" || box.style.display === "") ? "block" : "none";
+  }
+  window.toggleSettings = toggleSettings;
+  window.hideActions = function(){ if (els.postBox) els.postBox.style.display = "none"; };
 
-  wrapper.addEventListener("click", () => {
-    if (!ballState[i].swiped) return;
-    ballState[i].multiplier = (ballState[i].multiplier===1)?2:1;
-    updateMultiplierLabel(i);
-    showPopup(ballState[i].multiplier===2 ? "サイド（得点×2）" : "コーナー（得点×1）");
-    playSoundOverlap("sounds/side.mp3");
-    recalculateScores();
-  });
-}
+  // ====== イベントバインド ======
+  function bindEvents(){
+    els.reset?.addEventListener("click", resetAll);
+    els.regist?.addEventListener("click", submit);
 
-resetBtn.addEventListener("click", resetAll);
+    [els.rule, els.shop, els.p1, els.p2, els.date].forEach((sel)=>{
+      sel?.addEventListener("change", ()=>{
+        if (sel === els.p1 || sel === els.p2) updatePlayerLabels();
+        saveSelectionToLocal();
+      });
+    });
+  }
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('service-worker.js').catch(()=>{});
-}
+  // ====== 初期化（DOM 完了後に実行） ======
+  async function init(){
+    grabEls();
+    if (els.date && !els.date.value) els.date.value = todayYmd();
+    await loadMasters();
+    buildGrid();
+    updateScoreboard();
+    bindEvents();
+    log("initialized");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once:true });
+  } else {
+    init();
+  }
+})();
