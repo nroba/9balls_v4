@@ -196,38 +196,3 @@ button{ font: inherit; }
 @media (min-width: 560px){
   :root{ --ball: clamp(92px, 18vw, 120px); }
 }
-/* --- Pocketmode 強制オーバーライド（末尾に置く）--- */
-:root { --rollX: 60px; } /* 好みで距離調整：例 80px にすると移動量UP */
-
-/* wrapper を動かす版（優先度を上げ、!important で上書き） */
-#ballGrid .ball-wrapper {
-  transition: transform .6s ease !important;
-  will-change: transform;
-}
-#ballGrid .ball-wrapper.roll-left  {
-  transform: translateX(calc(var(--rollX, 60px) * -1)) rotate(-360deg) !important;
-}
-#ballGrid .ball-wrapper.roll-right {
-  transform: translateX(var(--rollX, 60px)) rotate(360deg) !important;
-}
-
-/* 子要素の画像を動かす版（他CSSが wrapper の transform を握っていても動く保険） */
-#ballGrid .ball-wrapper .ball {
-  transition: transform .6s ease !important;
-  will-change: transform;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-#ballGrid .ball-wrapper.roll-left  .ball {
-  transform: translateX(calc(var(--rollX, 60px) * -1)) rotate(-360deg) !important;
-}
-#ballGrid .ball-wrapper.roll-right .ball {
-  transform: translateX(var(--rollX, 60px)) rotate(360deg) !important;
-}
-
-/* 視覚（固定時は不透明） */
-#ballGrid .ball-wrapper.roll-left,
-#ballGrid .ball-wrapper.roll-right {
-  opacity: 1 !important;
-}
