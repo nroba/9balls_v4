@@ -1,387 +1,211 @@
-/* /pocketmode/assets/pocketmode.js
-   Pocketmode 本体（DOM完了後に初期化・ジェスチャー統一の堅牢版）
-   - マスタ取得: /pocketmode/api/masters.php
-   - 2列グリッド（ball1..9）
-   - シングルタップ: 未→P1→P2→未
-   - ダブルタップ/ダブルクリック: 倍率 ×1→×2→×3→×1
-   - スワイプ(左右): 左=P1, 右=P2（HTML5 DnDは全無効）
-   - 登録: /pocketmode/api/finalize_game.php?debug=1 に JSON POST
-   - 9番の取得者を勝者とし、score1/score2 を自動設定
+/* Pocketmode（横スワイプで固定＋登録処理を追加）
+   - 左スワイプ：roll-left 付与 → P1
+   - 右スワイプ：roll-right 付与 → P2
+   - 逆方向へ大きく振る：解除（元位置へ戻す）
+   - クリック：割当済みの玉だけ倍率トグル（×1/×2）
+   - 登録：/pocketmode/api/finalize_game.php へ JSON POST
 */
 
 (() => {
   "use strict";
-  const DEBUG = location.search.includes("debug=1");
-  const log = (...a) => { if (DEBUG) console.log("[pm]", ...a); };
 
-  // ====== 要素参照（DOM読み込み後に取得） ======
-  const els = {
-    date: null, rule: null, shop: null, p1: null, p2: null,
-    label1: null, label2: null, s1: null, s2: null,
-    grid: null, reset: null, regist: null, postBox: null, popup: null,
-  };
-  function grabEls(){
-    els.date   = document.getElementById("dateInput");
-    els.rule   = document.getElementById("ruleSelect");
-    els.shop   = document.getElementById("shop");
-    els.p1     = document.getElementById("player1");
-    els.p2     = document.getElementById("player2");
-    els.label1 = document.getElementById("label1");
-    els.label2 = document.getElementById("label2");
-    els.s1     = document.getElementById("score1");
-    els.s2     = document.getElementById("score2");
-    els.grid   = document.getElementById("ballGrid");
-    els.reset  = document.getElementById("resetBtn");
-    els.regist = document.getElementById("registBtn");
-    els.postBox= document.getElementById("postRegistActions");
-    els.popup  = document.getElementById("popup");
-    if (!els.grid) log("WARN: #ballGrid が見つかりません。HTMLのIDをご確認ください。");
+  // ====== 定数・要素 ======
+  const API_FINALIZE = "/pocketmode/api/finalize_game.php"; // 必要ならパス調整
+  const grid      = document.getElementById("ballGrid");
+  const popup     = document.getElementById("popup");
+  const resetBtn  = document.getElementById("resetBtn");
+  const registBtn = document.getElementById("registBtn");
+  const ruleSel   = document.getElementById("ruleSelect");
+  const p1Sel     = document.getElementById("player1");
+  const p2Sel     = document.getElementById("player2");
+  const shopSel   = document.getElementById("shop");
+  const dateInput = document.getElementById("dateInput");
+
+  if (!grid) { console.warn("ballGrid が見つかりません"); return; }
+
+  // ====== ユーティリティ ======
+  const z2 = (n)=> String(n).padStart(2,"0");
+  const todayYmd = ()=>{ const d=new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; };
+
+  function playSoundOverlap(src) {
+    try { new Audio(src).play(); } catch(e) { /* noop */ }
+  }
+
+  function showPopup(text, ms=1000) {
+    if (!popup) return;
+    popup.textContent = text;
+    popup.style.display = "block";
+    setTimeout(() => { popup.style.display = "none"; }, ms);
+  }
+
+  function updateLabels() {
+    const l1 = document.getElementById("label1");
+    const l2 = document.getElementById("label2");
+    if (l1) l1.textContent = p1Sel?.selectedOptions?.[0]?.textContent || p1Sel?.value || "Player 1";
+    if (l2) l2.textContent = p2Sel?.selectedOptions?.[0]?.textContent || p2Sel?.value || "Player 2";
   }
 
   // ====== 状態 ======
-  const state = {
-    // balls[n] = { assigned: null|1|2, multiplier: 1..3 }
-    balls: Array.from({length:10}, () => ({ assigned: null, multiplier: 1 })), // index 0 未使用
-    players: [], shops: [], rules: [],
-  };
+  const ballState = {}; // { [i]: { swiped, assigned: 1|2|null, multiplier: 1|2, wrapper } }
+  let score1 = 0, score2 = 0;
 
-  // ====== ユーティリティ ======
-  const z2 = (n) => String(n).padStart(2, "0");
-  const todayYmd = () => {
-    const d = new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`;
-  };
-
-  function showPopup(msg, ms=1200){
-    if(!els.popup) return;
-    els.popup.textContent = msg;
-    els.popup.style.display = "block";
-    clearTimeout(showPopup._t);
-    showPopup._t = setTimeout(()=>{ els.popup.style.display = "none"; }, ms);
-  }
-
-  function saveSelectionToLocal(){
-    try{
-      localStorage.setItem("rule_id",    els.rule?.value ?? "");
-      localStorage.setItem("shop_id",    els.shop?.value ?? "");
-      localStorage.setItem("player1_id", els.p1?.value ?? "");
-      localStorage.setItem("player2_id", els.p2?.value ?? "");
-      localStorage.setItem("date",       els.date?.value ?? "");
-    }catch(_){}
-  }
-  function restoreSelectionFromLocal(){
-    try{
-      const x = (k)=> localStorage.getItem(k);
-      if(els.rule && x("rule_id"))    els.rule.value = x("rule_id");
-      if(els.shop && x("shop_id"))    els.shop.value = x("shop_id");
-      if(els.p1   && x("player1_id")) els.p1.value   = x("player1_id");
-      if(els.p2   && x("player2_id")) els.p2.value   = x("player2_id");
-      if(els.date && x("date"))       els.date.value = x("date");
-    }catch(_){}
-  }
-
-  function computeScores(){
-    // 9番を取った側を勝者とする（なければ 0-0）
-    const last = state.balls[9]?.assigned ?? null;
-    return { s1: last === 1 ? 1 : 0, s2: last === 2 ? 1 : 0 };
-  }
-
-  function updateScoreboard(){
-    // 表示は「取った玉の個数」
-    const cnt1 = state.balls.reduce((a,b,i)=> i>0 && b.assigned===1 ? a+1 : a, 0);
-    const cnt2 = state.balls.reduce((a,b,i)=> i>0 && b.assigned===2 ? a+1 : a, 0);
-    if (els.s1) els.s1.textContent = String(cnt1);
-    if (els.s2) els.s2.textContent = String(cnt2);
-  }
-
-  function updatePlayerLabels(){
-    const p1t = els.p1?.selectedOptions[0]?.textContent || "Player 1";
-    const p2t = els.p2?.selectedOptions[0]?.textContent || "Player 2";
-    if (els.label1) els.label1.textContent = p1t;
-    if (els.label2) els.label2.textContent = p2t;
-  }
-
-  function ensureFirstSelected(sel){
-    if (!sel) return;
-    if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
-  }
-
-  function makeOption(id, name, code){
-    const opt = document.createElement("option");
-    opt.value = String(id);
-    opt.dataset.id = String(id);
-    if (code) opt.dataset.code = String(code);
-    opt.textContent = code ? `${code}：${name}` : name;
-    return opt;
-  }
-
-  // ====== マスタ取得 ======
-  async function loadMasters(){
-    try{
-      const res = await fetch("/pocketmode/api/masters.php", { cache:"no-store" });
-      const data = await res.json();
-
-      // players
-      if(Array.isArray(data.players) && els.p1 && els.p2){
-        els.p1.innerHTML = ""; els.p2.innerHTML = "";
-        state.players = data.players;
-        data.players.forEach((p)=> {
-          els.p1.appendChild(makeOption(p.id, p.name));
-          els.p2.appendChild(makeOption(p.id, p.name));
-        });
-      }
-
-      // shops
-      if(Array.isArray(data.shops) && els.shop){
-        els.shop.innerHTML = "";
-        state.shops = data.shops;
-        data.shops.forEach((s) => {
-          els.shop.appendChild(makeOption(s.id, s.name));
-        });
-      }
-
-      // rules
-      if(Array.isArray(data.rules) && els.rule){
-        els.rule.innerHTML = "";
-        state.rules = data.rules;
-        data.rules.forEach((r)=> {
-          els.rule.appendChild(makeOption(r.id, r.name, r.code));
-        });
-      }
-    }catch(err){
-      console.warn("masters load failed:", err);
+  function updateMultiplierLabel(num) {
+    const label = document.getElementById(`multi${num}`);
+    const mult = ballState[num].multiplier;
+    if (mult === 2) {
+      label.textContent = "×2";
+      label.style.display = "block";
+      label.classList.remove("bounce"); void label.offsetWidth; label.classList.add("bounce");
+    } else {
+      label.style.display = "none";
+      label.classList.remove("bounce");
     }
-
-    // 選択復元（存在しなければ先頭を選ぶ）
-    restoreSelectionFromLocal();
-    ensureFirstSelected(els.rule);
-    ensureFirstSelected(els.shop);
-    ensureFirstSelected(els.p1);
-    ensureFirstSelected(els.p2);
-    updatePlayerLabels();
   }
 
-  // ====== グリッド生成（1..9） ======
-  function buildGrid(){
-    if (!els.grid) return;
-    els.grid.innerHTML = "";
+  function updateScoreDisplay() {
+    const s1 = document.getElementById("score1");
+    const s2 = document.getElementById("score2");
+    if (s1) s1.textContent = score1;
+    if (s2) s2.textContent = score2;
+  }
 
-    for(let i=1; i<=9; i++){
-      // 状態初期化
-      state.balls[i] = { assigned: null, multiplier: 1 };
+  // 過去版互換の得点ロジック（A/B）
+  function recalcScores() {
+    score1 = 0; score2 = 0;
+    const rule = (ruleSel?.value || "A").toUpperCase(); // "A" / "B"
+    for (let j = 1; j <= 9; j++) {
+      const st = ballState[j];
+      if (!st?.swiped || !st.assigned) continue;
+      let point = 0;
+      if (rule === "A") {
+        if (j === 9) point = 2;
+        else if (j % 2 === 1) point = 1;
+        point *= st.multiplier;
+      } else if (rule === "B") {
+        point = (j === 9) ? 2 : 1;
+      }
+      if (st.assigned === 1) score1 += point;
+      if (st.assigned === 2) score2 += point;
+    }
+    updateScoreDisplay();
+  }
 
+  // ====== 生成 ======
+  function buildGrid() {
+    grid.innerHTML = "";
+    for (let i = 1; i <= 9; i++) {
       const wrap = document.createElement("div");
       wrap.className = "ball-wrapper";
-      wrap.dataset.ball = String(i);
-      // ネイティブHTML5 DnD完全無効化（競合防止）
-      wrap.setAttribute("draggable","false");
+      wrap.style.opacity = "0.5";
 
       const img = document.createElement("img");
       img.className = "ball";
       img.src = `/images/ball${i}.png`;
       img.alt = `Ball ${i}`;
-      img.setAttribute("draggable","false"); // ← 重要
+      img.setAttribute("draggable", "false");
 
-      const badge = document.createElement("div");
-      badge.className = "ball-multiplier";
-      badge.textContent = "×1";
-      badge.dataset.v = "1"; // 1のときはCSSで非表示
+      const label = document.createElement("div");
+      label.className = "ball-multiplier";
+      label.id = `multi${i}`;
+      label.textContent = "";
+      label.style.display = "none";
 
       wrap.appendChild(img);
-      wrap.appendChild(badge);
-      els.grid.appendChild(wrap);
+      wrap.appendChild(label);
+      grid.appendChild(wrap);
 
-      // すべての操作（シングル/ダブル/スワイプ）を1本のハンドラで処理
-      attachGesture(wrap, i);
+      ballState[i] = { swiped:false, assigned:null, multiplier:1, wrapper:wrap };
+
+      attachSwipeHandlers(wrap, i);
     }
   }
 
-  // ====== UI更新 ======
-  function refreshBallUI(n){
-    const wrap = els.grid?.querySelector(`.ball-wrapper[data-ball="${n}"]`);
-    if (!wrap) return;
-    const b = state.balls[n];
+  // ====== スワイプ（左右のみ） ======
+  function attachSwipeHandlers(el, n) {
+    const TH = 30; // スワイプ判定の閾値(px)
+    let startX = null;
 
-    // 選択スタイル
-    if (b.assigned === 1 || b.assigned === 2) wrap.classList.add("is-active");
-    else wrap.classList.remove("is-active");
+    const onStart = (x) => { startX = x; };
+    const onEnd   = (x) => {
+      if (startX == null) return;
+      const dx = x - startX;
+      startX = null;
 
-    // 倍率バッジ
-    const badge = wrap.querySelector(".ball-multiplier");
-    const v = Math.max(1, Number(b.multiplier||1));
-    badge.textContent = `×${v}`;
-    badge.dataset.v = String(v);
+      const st = ballState[n];
+      const prev = st.assigned;
 
-    updateScoreboard();
-  }
-
-  function cycleAssign(n){
-    const cur = state.balls[n].assigned;
-    const next = (cur === null) ? 1 : (cur === 1 ? 2 : null);
-    state.balls[n].assigned = next;
-    refreshBallUI(n);
-  }
-
-  function incMultiplier(n){
-    const cur = state.balls[n].multiplier || 1;
-    const next = (cur % 3) + 1; // 1→2→3→1
-    state.balls[n].multiplier = next;
-    refreshBallUI(n);
-  }
-
-  // ====== ジェスチャー（Pointer優先。なければ Touch/Mouse） ======
-  function attachGesture(el, n){
-    const hasPointer = "PointerEvent" in window;
-
-    if (hasPointer) {
-      bindPointer(el, n);
-    } else {
-      bindFallback(el, n); // 古い環境
-    }
-  }
-
-  function bindPointer(el, n){
-    const SWIPE_X = 40;   // スワイプ閾値(px)
-    const MOVE_MIN = 8;   // 微小移動の無視
-    const TAP_MS = 280;   // ダブルタップ判定
-
-    let lastTapAt = 0;
-
-    el.addEventListener("pointerdown", (ev) => {
-      // スクロール・長押しメニューなど抑止
-      if (ev.pointerType !== "mouse") ev.preventDefault();
-
-      const start = { x: ev.clientX, y: ev.clientY, t: Date.now() };
-      let moved = false;
-      const pointerId = ev.pointerId;
-
-      // double tap 判定
-      const deltaT = start.t - lastTapAt;
-      if (deltaT > 0 && deltaT < TAP_MS) {
-        lastTapAt = 0; // 消費
-        incMultiplier(n);
-        return;
+      if (!st.swiped) {
+        if (dx < -TH) {
+          st.assigned = 1; st.swiped = true;
+          restartAnimation(el, "roll-left");
+          playSoundOverlap("sounds/swipe.mp3");
+        } else if (dx > TH) {
+          st.assigned = 2; st.swiped = true;
+          restartAnimation(el, "roll-right");
+          playSoundOverlap("sounds/swipe.mp3");
+        } else {
+          return;
+        }
+      } else {
+        // 既に固定済み → 逆方向で解除
+        if ((prev === 1 && dx > TH) || (prev === 2 && dx < -TH)) {
+          st.assigned = null; st.swiped = false;
+          el.classList.remove("roll-left", "roll-right");
+          el.style.opacity = "0.5";
+          playSoundOverlap("sounds/cancel.mp3");
+        } else {
+          // 同方向は維持
+        }
       }
+      recalcScores();
+    };
 
-      const mm = (e) => {
-        if (e.pointerId !== pointerId) return;
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
-        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
-        if (e.pointerType !== "mouse") e.preventDefault();
-      };
-      const mu = (e) => {
-        if (e.pointerId !== pointerId) return;
-        document.removeEventListener("pointermove", mm, {passive:false});
-        document.removeEventListener("pointerup", mu, {passive:false});
+    // touch / mouse で down/up 差分を判定
+    el.addEventListener("touchstart", (e)=> onStart(e.touches[0].clientX), {passive:true});
+    el.addEventListener("touchend",   (e)=> onEnd(e.changedTouches[0].clientX));
+    el.addEventListener("mousedown",  (e)=> onStart(e.clientX));
+    el.addEventListener("mouseup",    (e)=> onEnd(e.clientX));
 
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
-
-        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
-          // スワイプ：左右で割当
-          state.balls[n].assigned = dx > 0 ? 2 : 1;
-          refreshBallUI(n);
-        } else {
-          // タップ（シングル）
-          lastTapAt = Date.now();
-          cycleAssign(n);
-        }
-      };
-
-      try { el.setPointerCapture(pointerId); } catch(_){}
-      document.addEventListener("pointermove", mm, {passive:false});
-      document.addEventListener("pointerup", mu, {passive:false});
+    // クリック：割当済みのときのみ倍率トグル
+    el.addEventListener("click", () => {
+      const st = ballState[n];
+      if (!st.swiped) return;
+      st.multiplier = (st.multiplier === 1) ? 2 : 1;
+      updateMultiplierLabel(n);
+      showPopup(st.multiplier === 2 ? "サイド（得点×2）" : "コーナー（得点×1）");
+      playSoundOverlap("sounds/side.mp3");
+      recalcScores();
     });
   }
 
-  function bindFallback(el, n){
-    // Touch + Mouse 併用（古いブラウザ用）
-    const SWIPE_X = 40, MOVE_MIN = 8, TAP_MS = 280;
-    let lastTapAt = 0;
-
-    // touch
-    el.addEventListener("touchstart", (ev) => {
-      if (!ev.changedTouches || ev.changedTouches.length === 0) return;
-      const t0 = ev.changedTouches[0];
-      const start = { x: t0.clientX, y: t0.clientY, t: Date.now() };
-      let moved = false;
-      ev.preventDefault();
-
-      const deltaT = start.t - lastTapAt;
-      if (deltaT > 0 && deltaT < TAP_MS) { lastTapAt = 0; incMultiplier(n); return; }
-
-      const tm = (e) => {
-        const t = e.changedTouches[0];
-        const dx = t.clientX - start.x;
-        const dy = t.clientY - start.y;
-        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
-        e.preventDefault();
-      };
-      const tu = (e) => {
-        document.removeEventListener("touchmove", tm, {passive:false});
-        document.removeEventListener("touchend", tu, {passive:false});
-        const t = e.changedTouches[0]; if (!t) return;
-        const dx = t.clientX - start.x;
-        const dy = t.clientY - start.y;
-        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
-          state.balls[n].assigned = dx > 0 ? 2 : 1;
-          refreshBallUI(n);
-        } else {
-          lastTapAt = Date.now();
-          cycleAssign(n);
-        }
-      };
-      document.addEventListener("touchmove", tm, {passive:false});
-      document.addEventListener("touchend", tu, {passive:false});
-    }, {passive:false});
-
-    // mouse
-    el.addEventListener("mousedown", (ev) => {
-      const start = { x: ev.clientX, y: ev.clientY, t: Date.now() };
-      let moved = false;
-
-      const deltaT = start.t - lastTapAt;
-      if (deltaT > 0 && deltaT < TAP_MS) { lastTapAt = 0; incMultiplier(n); return; }
-
-      const mm = (e) => {
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
-        if (Math.abs(dx) > MOVE_MIN || Math.abs(dy) > MOVE_MIN) moved = true;
-        e.preventDefault();
-      };
-      const mu = (e) => {
-        document.removeEventListener("mousemove", mm);
-        document.removeEventListener("mouseup", mu);
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
-        if (moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= SWIPE_X) {
-          state.balls[n].assigned = dx > 0 ? 2 : 1;
-          refreshBallUI(n);
-        } else {
-          lastTapAt = Date.now();
-          cycleAssign(n);
-        }
-      };
-      document.addEventListener("mousemove", mm);
-      document.addEventListener("mouseup", mu);
-    });
+  // CSSアニメをリセットして再適用
+  function restartAnimation(el, cls) {
+    el.classList.remove("roll-left", "roll-right");
+    void el.offsetWidth; // reflow
+    el.classList.add(cls);
+    el.style.opacity = "1";
   }
 
   // ====== リセット ======
-  function resetAll(){
-    for(let i=1; i<=9; i++){
-      state.balls[i].assigned = null;
-      state.balls[i].multiplier = 1;
-      refreshBallUI(i);
+  function resetAll() {
+    for (let i = 1; i <= 9; i++) {
+      const st = ballState[i];
+      if (!st) continue;
+      st.swiped = false; st.assigned = null; st.multiplier = 1;
+      const w = st.wrapper;
+      w.classList.remove("roll-left", "roll-right");
+      w.style.opacity = "0.5";
+      updateMultiplierLabel(i);
     }
-    updateScoreboard();
-    if (els.postBox) els.postBox.style.display = "none";
+    score1 = 0; score2 = 0; updateScoreDisplay();
+    const box = document.getElementById("postRegistActions");
+    if (box) box.style.display = "none";
   }
 
-  // ====== 登録 ======
-  function normalizeSelect(sel){
+  // ====== 登録処理 ======
+  function normalizeSelect(sel) {
     if (!sel) return null;
-    if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
+    if (!sel.value && sel.options.length>0) sel.selectedIndex=0;
     let id = Number.parseInt(sel.value, 10);
     if (!Number.isFinite(id)) {
       const opt = sel.options[sel.selectedIndex];
@@ -390,111 +214,108 @@
     return Number.isFinite(id) ? id : null;
   }
 
-  function gatherPayload(){
-    const dateStr = els.date?.value || todayYmd();
-    const ruleId  = normalizeSelect(els.rule);
-    const shopId  = normalizeSelect(els.shop);
-    const p1Id    = normalizeSelect(els.p1);
-    const p2Id    = normalizeSelect(els.p2);
-    const { s1, s2 } = computeScores();
+  function generateGameId() {
+    const d = new Date();
+    const y = d.getFullYear(), m=z2(d.getMonth()+1), dd=z2(d.getDate()),
+          hh=z2(d.getHours()), mm=z2(d.getMinutes()), ss=z2(d.getSeconds());
+    const rnd = Math.random().toString(36).slice(2,6);
+    return `pm-${y}${m}${dd}-${hh}${mm}${ss}-${rnd}`;
+  }
+
+  function gatherPayload() {
+    const dateStr = (dateInput?.value || todayYmd());
+    const rule_id = normalizeSelect(ruleSel);
+    const shop_id = normalizeSelect(shopSel);
+    const p1_id   = normalizeSelect(p1Sel);
+    const p2_id   = normalizeSelect(p2Sel);
+
+    // 得点は画面表示の値（recalcScoresの結果）を送る
+    const s1 = Number(document.getElementById("score1")?.textContent || score1 || 0);
+    const s2 = Number(document.getElementById("score2")?.textContent || score2 || 0);
 
     const balls = {};
-    for(let i=1;i<=9;i++){
-      balls[i] = {
-        assigned: state.balls[i].assigned,   // 1|2|null
-        multiplier: state.balls[i].multiplier // 1..3
-      };
+    for (let i=1;i<=9;i++){
+      const st = ballState[i] || {assigned:null, multiplier:1};
+      balls[i] = { assigned: st.assigned, multiplier: st.multiplier };
     }
 
     return {
+      game_id: generateGameId(),
       date: dateStr,
-      rule_id: ruleId,
-      shop_id: shopId,
-      player1_id: p1Id,
-      player2_id: p2Id,
-      score1: s1,
-      score2: s2,
+      rule_id, shop_id,
+      player1_id: p1_id,
+      player2_id: p2_id,
+      score1: s1, score2: s2,
       balls
     };
   }
 
-  async function submit(){
+  async function submit() {
+    // 見た目のフィードバック
+    registBtn?.classList.add("clicked");
+    setTimeout(()=>registBtn?.classList.remove("clicked"), 550);
+
     const payload = gatherPayload();
-    // 未選択チェック（フロント側）
+
+    // 必須チェック
     const missing = [];
     if (!payload.date) missing.push("日付");
     if (!payload.rule_id) missing.push("ルール");
     if (!payload.shop_id) missing.push("店舗");
     if (!payload.player1_id) missing.push("プレイヤー1");
     if (!payload.player2_id) missing.push("プレイヤー2");
-    if (missing.length){
+    if (missing.length) {
       alert("未選択：" + missing.join(" / "));
       return;
     }
-    if (payload.player1_id === payload.player2_id){
+    if (payload.player1_id === payload.player2_id) {
       alert("同一プレイヤー同士は登録できません");
       return;
     }
 
-    try{
-      const res = await fetch("/pocketmode/api/finalize_game.php?debug=1", {
+    try {
+      const res = await fetch(API_FINALIZE, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const text = await res.text();
+      const raw = await res.text();
       let data;
-      try { data = JSON.parse(text); }
-      catch { console.error("raw response:", text); throw new Error("Invalid JSON"); }
+      try { data = JSON.parse(raw); } catch { throw new Error("Invalid JSON: " + raw.slice(0,120)); }
 
-      if (data && data.success){
+      if (data && data.success) {
         showPopup("登録しました！");
+        const box = document.getElementById("postRegistActions");
+        if (box) box.style.display = "flex";
         resetAll();
-        if (els.postBox) els.postBox.style.display = "flex";
       } else {
         console.error("保存エラー:", data);
-        alert("保存に失敗しました。\n" + (data && data.error ? data.error : "詳細不明")
-              + (data && data.log_path ? "\nlog: " + data.log_path : ""));
+        alert("保存に失敗しました。\n" + (data?.error || "詳細不明"));
         showPopup("保存に失敗しました");
       }
-    }catch(err){
+    } catch (err) {
       console.error("送信エラー:", err);
-      showPopup("送信に失敗しました");
       alert("送信に失敗しました。\n" + (err?.message || err));
+      showPopup("送信に失敗しました");
     }
   }
 
-  // ====== 設定表示のトグル ======
-  function toggleSettings(){
-    const box = document.getElementById("gameSettings");
-    if (!box) return;
-    box.style.display = (box.style.display === "none" || box.style.display === "") ? "block" : "none";
-  }
-  window.toggleSettings = toggleSettings;
-  window.hideActions = function(){ if (els.postBox) els.postBox.style.display = "none"; };
-
-  // ====== イベントバインド ======
-  function bindEvents(){
-    els.reset?.addEventListener("click", resetAll);
-    els.regist?.addEventListener("click", submit);
-
-    [els.rule, els.shop, els.p1, els.p2, els.date].forEach((sel)=>{
-      sel?.addEventListener("change", ()=>{
-        if (sel === els.p1 || sel === els.p2) updatePlayerLabels();
-        saveSelectionToLocal();
-      });
-    });
+  // ====== イベント ======
+  function bindMeta() {
+    p1Sel?.addEventListener("change", updateLabels);
+    p2Sel?.addEventListener("change", updateLabels);
   }
 
-  // ====== 初期化（DOM 完了後に実行） ======
-  async function init(){
-    grabEls();
-    if (els.date && !els.date.value) els.date.value = todayYmd();
-    await loadMasters();
+  // ====== 初期化 ======
+  function init() {
+    if (dateInput && !dateInput.value) dateInput.value = todayYmd();
     buildGrid();
-    updateScoreboard();
-    bindEvents();
-    log("initialized");
+    updateLabels();
+    recalcScores();
+    bindMeta();
+
+    resetBtn?.addEventListener("click", resetAll);
+    registBtn?.addEventListener("click", submit);   // ←← これが無いと“反応しない”状態になります
   }
 
   if (document.readyState === "loading") {
