@@ -1,0 +1,167 @@
+:root {
+  --gap: 6px;
+  --cell-size: 36px;
+  --cell-font: 18px;
+  --name-font: 14px;
+  --meta-font: 12px;
+  --score-width: 60px; /* 右端の得点列の幅 */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  background: #f7f7f7;
+  color: #333;
+}
+
+.res-container {
+  max-width: 980px;
+  margin: 16px auto 40px;
+  padding: 0 12px;
+}
+
+.res-h1 {
+  font-size: 20px;
+  margin: 12px 0 16px;
+}
+
+.res-empty {
+  color: #666;
+  margin: 16px 0;
+}
+
+.res-date-block { margin: 20px 0; }
+
+.res-date-title {
+  font-weight: 700;
+  font-size: 18px;
+  margin: 8px 0 12px;
+  color: #111;
+}
+
+.res-game-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  padding: 10px 10px 12px;
+  margin: 10px 0;
+  border: 1px solid #eee;
+}
+
+.res-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: var(--meta-font);
+  color: #666;
+  margin-bottom: 8px;
+}
+.res-meta .gid { font-weight: 600; color: #444; }
+
+.res-board {
+  display: grid;
+  grid-template-columns: 120px repeat(9, minmax(var(--cell-size), 1fr)) var(--score-width);
+  gap: var(--gap);
+  align-items: center;
+}
+
+.res-spacer { height: var(--cell-size); }
+
+.row-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-size: var(--name-font);
+  font-weight: 600;
+  color: #222;
+  padding-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ball-head,
+.score-head {
+  height: var(--cell-size);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #666;
+  background: #f0f0f0;
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+}
+
+.cell {
+  height: var(--cell-size);
+  min-width: var(--cell-size);
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  font-size: var(--cell-font);
+  user-select: none;
+}
+
+/* 通常 */
+.cell[data-owned="p1"] {
+  background: #eaf3ff;
+  border-color: #d2e6ff;
+}
+.cell[data-owned="p2"] {
+  background: #fff0ea;
+  border-color: #ffd9c9;
+}
+
+/* サイド（濃色）… multiplier=2 */
+.cell[data-owned="p1-side"] {
+  background: #bcd6ff;
+  border-color: #96c1ff;
+}
+.cell[data-owned="p2-side"] {
+  background: #ffc2a6;
+  border-color: #ff9f75;
+}
+
+/* 右端の得点セル */
+.score-cell {
+  height: var(--cell-size);
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #f9f9f9;
+  font-weight: 700;
+}
+.score-cell[data-side="p1"] { color: #205dbe; } /* 青系 */
+.score-cell[data-side="p2"] { color: #c85a20; } /* 橙系 */
+
+.res-legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #f1f1f1;
+  border: 1px solid #e8e8e8;
+  color: #555;
+}
+.badge.strong { font-weight: 700; }
+
+@media (max-width: 520px) {
+  :root { --cell-size: 32px; --cell-font: 16px; --name-font: 13px; --score-width: 52px; }
+  .res-board { grid-template-columns: 96px repeat(9, minmax(var(--cell-size), 1fr)) var(--score-width); }
+}
