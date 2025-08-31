@@ -1,8 +1,9 @@
 /* Pocketmode（横スワイプ固定＋登録＋マスタ読込）
-   改善点:
-   - 2名以上のプレイヤーがいる場合、初期選択を P1=先頭 / P2=2番目 に自動設定
-   - P1/P2 が同じになったら自動回避（可能な場合）
-   - 設定ボタンのトグル処理を追加（id="settingsBtn" または window.toggleSettings() どちらでも可）
+   変更点（2025-08-31）:
+   - ルールA/B 共通でバッジは「Side」表記に統一
+   - ルールA: 倍率 1⇔2（倍率2の時に「Side」表示）
+   - ルールB: 倍率は使わず isSide をトグル（「Side」表示）。スコアは常に等倍
+   - ルール切替時に A/B 間で状態を相互同期
 */
 (() => {
   "use strict";
@@ -22,6 +23,7 @@
   const dateInput   = document.getElementById("dateInput");
   const settingsBtn = document.getElementById("settingsBtn");
   const settingsBox = document.getElementById("gameSettings");
+  const titleEl     = document.querySelector(".pm-title"); // タイトル表示
 
   if (!grid) { console.warn("ballGrid が見つかりません"); return; }
 
@@ -42,11 +44,45 @@
     if (l2) l2.textContent = p2Sel?.selectedOptions?.[0]?.textContent || "Player 2";
   }
 
+  // ルール判定 & タイトル反映
+  function getRuleCode(){
+    const opt = ruleSel?.selectedOptions?.[0];
+    const codeByData = opt?.dataset?.code?.trim();
+    if (codeByData) return codeByData.toUpperCase();
+    const t = (opt?.textContent || "").toUpperCase();
+    if (t.includes("A")) return "A";
+    if (t.includes("B")) return "B";
+    return "";
+  }
+  function isRuleA(){ return getRuleCode() === "A"; }
+
+  function updateRuleUI(){
+    const code = getRuleCode() || "?";
+    if (titleEl){
+      titleEl.textContent = `Pocketmode — ルール${code}`;
+    }
+    // ルール切替に伴う状態同期
+    const aMode = isRuleA();
+    for (let i=1;i<=9;i++){
+      const st = ballState[i]; if (!st) continue;
+      if (aMode){
+        // B→A：B側 isSide を A の倍率2に同期
+        if (st.isSide && st.multiplier !== 2) st.multiplier = 2;
+      } else {
+        // A→B：A側 倍率2 を B の isSide に同期（倍率は等倍にしておく）
+        if (st.multiplier === 2) st.isSide = true;
+        st.multiplier = 1; // Bでは倍率は無効化（スコアは常に等倍）
+      }
+      updateBadge(i);
+    }
+  }
+
   // ====== マスタ取得＆初期選択 ======
   function makeOpt(id, name, code){
     const o = document.createElement("option");
     o.value = String(id);
     o.dataset.id = String(id);
+    if (code) o.dataset.code = String(code);
     o.textContent = code ? `${code}：${name}` : name;
     return o;
   }
@@ -62,11 +98,9 @@
     if (!p1Sel || !p2Sel) return;
     const opts = Array.from(p1Sel.options).filter(o=>o.value!=="");
     if (opts.length >= 2){
-      // 初期: P1=先頭, P2=2番目
       p1Sel.value = opts[0].value;
       p2Sel.value = opts[1].value;
     } else {
-      // 1名以下 → とりあえず先頭
       ensureFirstNonEmpty(p1Sel);
       ensureFirstNonEmpty(p2Sel);
     }
@@ -77,8 +111,6 @@
       const target = (changedSel === p1Sel) ? p2Sel : p1Sel;
       const opts = Array.from(target.options).filter(o=>o.value!=="");
       if (opts.length >= 2){
-        // 同じでなければOK、同じなら次の候補へ
-        let idx = target.selectedIndex;
         for (let i=0;i<opts.length;i++){
           const tryVal = opts[i].value;
           if (tryVal !== (changedSel === p1Sel ? p1Sel.value : p2Sel.value)){
@@ -113,10 +145,10 @@
 
       ensureFirstNonEmpty(ruleSel);
       ensureFirstNonEmpty(shopSel);
-      // ここがポイント：2名以上いれば P1=先頭 / P2=2番目 に自動
       chooseTwoDistinctPlayers();
 
       updateLabels();
+      updateRuleUI();
     }catch(e){
       console.warn("masters取得失敗:", e);
       ensureFirstNonEmpty(ruleSel);
@@ -124,24 +156,42 @@
       ensureFirstNonEmpty(p1Sel);
       ensureFirstNonEmpty(p2Sel);
       updateLabels();
+      updateRuleUI();
     }
   }
 
   // ====== 状態＆スコア ======
-  const ballState = {}; // { [i]: { swiped, assigned: 1|2|null, multiplier: 1|2, wrapper } }
+  const ballState = {}; // { [i]: { swiped, assigned: 1|2|null, multiplier: 1|2, isSide: boolean, wrapper } }
   let score1=0, score2=0;
 
-  function updateMultiplierLabel(num){
+  // バッジ更新（A/B 共通で「Side」表記）
+  function updateBadge(num){
     const label = document.getElementById(`multi${num}`);
-    const mult = ballState[num].multiplier;
-    if (mult === 2){
-      label.textContent = "×2";
-      label.style.display = "block";
-      label.classList.remove("bounce"); void label.offsetWidth; label.classList.add("bounce");
+    const st = ballState[num];
+    if (!label || !st) return;
+
+    if (isRuleA()){
+      // A: 倍率2 or isSide なら「Side」表示（isSideはB→A切替時の引継ぎ用）
+      const show = (st.multiplier === 2) || !!st.isSide;
+      if (show){
+        label.textContent = "Side";
+        label.style.display = "block";
+        label.classList.remove("bounce"); void label.offsetWidth; label.classList.add("bounce");
+      } else {
+        label.style.display = "none"; label.classList.remove("bounce");
+      }
     } else {
-      label.style.display = "none"; label.classList.remove("bounce");
+      // B: isSide が true のときに「Side」表示
+      if (st.isSide){
+        label.textContent = "Side";
+        label.style.display = "block";
+        label.classList.remove("bounce"); void label.offsetWidth; label.classList.add("bounce");
+      } else {
+        label.style.display = "none"; label.classList.remove("bounce");
+      }
     }
   }
+
   function updateScoreDisplay(){
     const s1 = document.getElementById("score1");
     const s2 = document.getElementById("score2");
@@ -150,17 +200,16 @@
   }
   function recalcScores(){
     score1 = 0; score2 = 0;
-    const ruleText = (ruleSel?.selectedOptions?.[0]?.textContent || "A").toUpperCase();
-    const isA = /(^|\s|：)A(\s|：|$)/.test(ruleText);
+    const aRule = isRuleA();
     for (let j=1;j<=9;j++){
       const st = ballState[j];
       if (!st?.swiped || !st.assigned) continue;
       let point = 0;
-      if (isA){
+      if (aRule){
         if (j===9) point=2; else if (j%2===1) point=1;
-        point *= st.multiplier;
+        point *= st.multiplier;   // Aのみ倍率有効
       } else {
-        point = (j===9) ? 2 : 1;
+        point = (j===9) ? 2 : 1;  // Bでは常に等倍
       }
       if (st.assigned===1) score1 += point;
       if (st.assigned===2) score2 += point;
@@ -191,7 +240,8 @@
       wrap.appendChild(img); wrap.appendChild(label);
       grid.appendChild(wrap);
 
-      ballState[i] = { swiped:false, assigned:null, multiplier:1, wrapper:wrap };
+      // isSide を追加
+      ballState[i] = { swiped:false, assigned:null, multiplier:1, isSide:false, wrapper:wrap };
       attachSwipeHandlers(wrap, i);
     }
   }
@@ -220,6 +270,7 @@
         }
       }
       recalcScores();
+      updateBadge(n); // 念のため整合
     };
 
     el.addEventListener("touchstart",(e)=> onStart(e.touches[0].clientX), {passive:true});
@@ -227,16 +278,30 @@
     el.addEventListener("mousedown", (e)=> onStart(e.clientX));
     el.addEventListener("mouseup",   (e)=> onEnd(e.clientX));
 
+    // タップで「Side」切替
     el.addEventListener("click", ()=>{
       const st = ballState[n];
       if (!st.swiped) return;
+
+      if (!isRuleA()){
+        // ルールB：isSide トグル（スコアは等倍のまま）
+        st.isSide = !st.isSide;
+        showPopup(st.isSide ? "サイド" : "通常");
+        playSoundOverlap("sounds/side.mp3");
+        updateBadge(n);
+        return;
+      }
+
+      // ルールA：倍率トグル（倍率2 = Side）
       st.multiplier = (st.multiplier===1)?2:1;
-      updateMultiplierLabel(n);
+      st.isSide = (st.multiplier === 2); // A⇔B切替時の引継ぎ用
+      updateBadge(n);
       showPopup(st.multiplier===2 ? "サイド（得点×2）" : "コーナー（得点×1）");
       playSoundOverlap("sounds/side.mp3");
       recalcScores();
     });
   }
+
   function restartAnimation(el, cls){
     el.classList.remove("roll-left","roll-right");
     void el.offsetWidth; // reflow
@@ -248,9 +313,9 @@
   function resetAll(){
     for (let i=1;i<=9;i++){
       const st = ballState[i]; if (!st) continue;
-      st.swiped=false; st.assigned=null; st.multiplier=1;
+      st.swiped=false; st.assigned=null; st.multiplier=1; st.isSide=false;
       const w=st.wrapper; w.classList.remove("roll-left","roll-right"); w.style.opacity="0.5";
-      updateMultiplierLabel(i);
+      updateBadge(i);
     }
     score1=0; score2=0; updateScoreDisplay();
     const box = document.getElementById("postRegistActions");
@@ -287,18 +352,16 @@
 
     const balls={};
     for (let i=1;i<=9;i++){
-      const st = ballState[i] || {assigned:null, multiplier:1};
-      balls[i] = { assigned: st.assigned, multiplier: st.multiplier };
+      const st = ballState[i] || {assigned:null, multiplier:1, isSide:false};
+      balls[i] = { assigned: st.assigned, multiplier: st.multiplier }; // 送信フォーマットは従来踏襲
     }
     return { game_id:generateGameId(), date:dateStr, rule_id, shop_id, player1_id:p1_id, player2_id:p2_id, score1:s1, score2:s2, balls };
   }
   async function submit(){
-    // P1/P2 同一を可能なら自動回避
     autoAvoidSamePlayers(null);
 
     const payload = gatherPayload();
 
-    // まだ同一なら、可能性として「プレイヤーが1名しかいない」ケース
     if (payload.player1_id === payload.player2_id){
       const cnt = playersCount(p1Sel);
       if (cnt <= 1){
@@ -309,7 +372,6 @@
       return;
     }
 
-    // 見た目のフィードバック
     registBtn?.classList.add("clicked");
     setTimeout(()=>registBtn?.classList.remove("clicked"), 550);
 
@@ -352,7 +414,6 @@
     const cur = window.getComputedStyle(settingsBox).display;
     settingsBox.style.display = (cur==="none") ? "block" : "none";
   }
-  // HTML側で onclick="toggleSettings()" と書かれていても動くように
   window.toggleSettings = toggleSettings;
 
   // ====== 初期化 ======
@@ -365,9 +426,9 @@
     recalcScores();
 
     // イベント
-    p1Sel?.addEventListener("change", (e)=>{ autoAvoidSamePlayers(p1Sel); updateLabels(); });
-    p2Sel?.addEventListener("change", (e)=>{ autoAvoidSamePlayers(p2Sel); updateLabels(); });
-    ruleSel?.addEventListener("change", recalcScores);
+    p1Sel?.addEventListener("change", ()=>{ autoAvoidSamePlayers(p1Sel); updateLabels(); });
+    p2Sel?.addEventListener("change", ()=>{ autoAvoidSamePlayers(p2Sel); updateLabels(); });
+    ruleSel?.addEventListener("change", ()=>{ updateRuleUI(); recalcScores(); });
 
     resetBtn?.addEventListener("click", resetAll);
     registBtn?.addEventListener("click", submit);

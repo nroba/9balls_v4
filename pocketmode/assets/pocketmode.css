@@ -101,6 +101,8 @@ body{
   grid-template-columns: repeat(2, minmax(var(--ball), 1fr));
   justify-items: center;
   gap: var(--gap);
+  row-gap: 12px;   /* 追加。縦方向の間隔だけ個別に指定 */
+  column-gap: var(--gap); /* 横方向は従来通り */
   padding: 8px 16px 16px;
   /* スワイプ操作を優先（スクロール/ズームを抑止） */
   touch-action: none;
@@ -197,7 +199,7 @@ button{ font: inherit; }
   :root{ --ball: clamp(92px, 18vw, 120px); }
 }
 /* --- Pocketmode 強制オーバーライド（末尾に置く）--- */
-:root { --rollX: 60px; } /* 好みで距離調整：例 80px にすると移動量UP */
+:root { --rollX: 30px; } /* 好みで距離調整：例 80px にすると移動量UP */
 
 /* wrapper を動かす版（優先度を上げ、!important で上書き） */
 #ballGrid .ball-wrapper {
