@@ -1,12 +1,18 @@
 <?php
 // /results.php
+// 日別の戦績表示（1対戦ごとに上下2段：P1/P2、玉9グリッド＋右端に得点）
+// 表示：通常色＝P1青/P2橙、サイド（multiplier>1）は濃色で表示
+// 得点ロジック：rule_score.point × （サイド倍率を使うルールなら side_multiplier_value、使わないなら1）
+// 依存：/sys/db_connect.php が $pdo (PDO) を提供
+
 declare(strict_types=1);
 mb_internal_encoding('UTF-8');
+
 header('Content-Type: text/html; charset=UTF-8');
 
 require_once __DIR__ . '/sys/db_connect.php';
 
-// アセットの更新検知用（?v=timestamp）
+// アセット更新検知（?v=timestamp）
 function v_asset(string $relPath): string {
   $p = __DIR__ . '/' . ltrim($relPath, '/');
   $t = @filemtime($p);
@@ -20,7 +26,9 @@ function circled_num(int $n): string {
 }
 
 // データ取得（date → game_id → ball_number）
-// ルールに応じた点数は rule_score から取得し、サイド(multiplier=2)で倍率
+// - ルール名、サイド倍率使用可否/倍率値（rule_master）
+// - 玉ごとの基点（rule_score.point）
+// - multiplier は「2=サイド」を想定（Aで有効、Bは見た目だけ or 常に1）
 $sql = "
 SELECT
   md.date,
@@ -33,10 +41,12 @@ SELECT
   sm.name  AS shop_name,
   md.rule_id,
   rm.name  AS rule_name,
+  COALESCE(rm.side_multiplier_enabled, 0) AS side_multiplier_enabled,
+  COALESCE(rm.side_multiplier_value,   2) AS side_multiplier_value,
   md.ball_number,
   md.assigned,
   md.multiplier,
-  rs.point AS base_point  -- ← ルール別の玉点（カラム名が違う場合は修正）
+  COALESCE(rs.point, 1) AS base_point
 FROM match_detail md
 LEFT JOIN player_master pm1 ON pm1.id = md.player1_id
 LEFT JOIN player_master pm2 ON pm2.id = md.player2_id
@@ -45,13 +55,14 @@ LEFT JOIN rule_master  rm  ON rm.id  = md.rule_id
 LEFT JOIN rule_score   rs  ON rs.rule_id = md.rule_id AND rs.ball_number = md.ball_number
 ORDER BY md.date DESC, md.game_id, md.ball_number;
 ";
+
 $stmt = $pdo->query($sql);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // 構造化
 // $byDate[date][game_id] = [
-//   'meta'=>...,
-//   'balls'=>[1=>['assigned'=>?, 'multiplier'=>?, 'base_point'=>?], ...]
+//   'meta' => [...],
+//   'balls' => [1 => ['assigned'=>?, 'multiplier'=>?, 'base_point'=>?], ... 9=>...]
 // ]
 $byDate = [];
 foreach ($rows as $r) {
@@ -61,26 +72,31 @@ foreach ($rows as $r) {
   if (!isset($byDate[$date][$gid])) {
     $byDate[$date][$gid] = [
       'meta' => [
-        'player1_id'   => (int)$r['player1_id'],
-        'player1_name' => $r['player1_name'] ?? 'Player1',
-        'player2_id'   => (int)$r['player2_id'],
-        'player2_name' => $r['player2_name'] ?? 'Player2',
-        'shop_name'    => $r['shop_name'] ?? '',
-        'rule_name'    => $r['rule_name'] ?? '',
-        'game_id'      => $gid,
+        'game_id'                 => $gid,
+        'player1_id'              => (int)$r['player1_id'],
+        'player1_name'            => $r['player1_name'] ?? 'Player1',
+        'player2_id'              => (int)$r['player2_id'],
+        'player2_name'            => $r['player2_name'] ?? 'Player2',
+        'shop_name'               => $r['shop_name'] ?? '',
+        'rule_id'                 => (int)$r['rule_id'],
+        'rule_name'               => $r['rule_name'] ?? '',
+        'side_multiplier_enabled' => (int)$r['side_multiplier_enabled'],
+        'side_multiplier_value'   => max(1, (int)$r['side_multiplier_value']),
       ],
       'balls' => array_fill(1, 9, ['assigned'=>null, 'multiplier'=>1, 'base_point'=>1]),
     ];
   }
+
   $bn = (int)$r['ball_number'];
   if ($bn >= 1 && $bn <= 9) {
     $byDate[$date][$gid]['balls'][$bn] = [
-      'assigned'   => is_null($r['assigned']) ? null : (int)$r['assigned'],                 // 1= P1 / 2= P2
-      'multiplier' => ($r['multiplier'] === null ? 1 : max(1, (int)$r['multiplier'])),      // 2= サイド
-      'base_point' => ($r['base_point'] === null ? 1 : (int)$r['base_point']),              // ルール別の玉点
+      'assigned'   => is_null($r['assigned']) ? null : (int)$r['assigned'],              // 1: P1, 2: P2
+      'multiplier' => is_null($r['multiplier']) ? 1 : max(1, (int)$r['multiplier']),     // 2: サイド
+      'base_point' => max(0, (int)$r['base_point']),                                      // 基点（0も許容）
     ];
   }
 }
+
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -104,26 +120,31 @@ foreach ($rows as $r) {
           <?php foreach ($games as $gid => $game): ?>
             <?php
               $m = $game['meta'];
-              $balls = $game['balls']; // [1..9] => ['assigned','multiplier','base_point']
+              $balls = $game['balls'];
 
               $p1Cells = [];
               $p2Cells = [];
               $p1Score = 0;
               $p2Score = 0;
 
+              $useMul = ((int)$m['side_multiplier_enabled'] === 1);
+              $mulVal = max(1, (int)$m['side_multiplier_value']);
+
               for ($bn = 1; $bn <= 9; $bn++) {
                 $a    = $balls[$bn]['assigned']   ?? null;
-                $mul  = (int)($balls[$bn]['multiplier'] ?? 1);
-                $base = (int)($balls[$bn]['base_point'] ?? 1);
-                if ($mul < 1) $mul = 1;
-                if ($base < 1) $base = 1;
+                $mul  = $balls[$bn]['multiplier'] ?? 1;
+                $base = $balls[$bn]['base_point'] ?? 1;
 
-                $isSide = ($mul === 2); // multiplier=2 → サイド（濃色）
+                // 見た目上の「サイド」判定（multiplier>1）
+                $isSide = ($mul > 1);
+                // 得点に効く倍率（Aは有効、Bは常に1）
+                $effectiveMul = ($useMul && $isSide) ? $mulVal : 1;
+                $point = (int)$base * (int)$effectiveMul;
+
+                if ($a === 1) $p1Score += $point;
+                if ($a === 2) $p2Score += $point;
+
                 $mark = $a ? circled_num($bn) : '・';
-
-                // スコア：ルール別基点 × multiplier
-                if ($a === 1) $p1Score += ($base * $mul);
-                if ($a === 2) $p2Score += ($base * $mul);
 
                 // P1セル
                 $p1Cells[$bn] = [
@@ -177,8 +198,8 @@ foreach ($rows as $r) {
               <div class="res-legend">
                 <span class="badge">青：P1（通常）</span>
                 <span class="badge">橙：P2（通常）</span>
-                <span class="badge strong">濃色：サイド（multiplier=2）</span>
-                <span class="badge">得点＝ rule_score.point × multiplier</span>
+                <span class="badge strong">濃色＝サイド（multiplier&gt;1）</span>
+                <span class="badge">得点＝ rule_score.point × （サイド倍率を使うルールなら倍率）</span>
               </div>
             </article>
           <?php endforeach; ?>

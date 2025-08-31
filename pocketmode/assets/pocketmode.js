@@ -1,9 +1,9 @@
-/* Pocketmode（横スワイプ固定＋登録＋マスタ読込）
-   変更点（2025-08-31）:
+/* Pocketmode（横スワイプ固定＋登録＋マスタ読込＋ACE）
    - ルールA/B 共通でバッジは「Side」表記に統一
    - ルールA: 倍率 1⇔2（倍率2の時に「Side」表示）
    - ルールB: 倍率は使わず isSide をトグル（「Side」表示）。スコアは常に等倍
    - ルール切替時に A/B 間で状態を相互同期
+   - 9番右に「ACE」ボタンを配置し、送信時に ace: 1/0 を付与
 */
 (() => {
   "use strict";
@@ -29,7 +29,7 @@
 
   // ====== ユーティリティ ======
   const z2 = (n)=> String(n).padStart(2,"0");
-  const todayYmd = ()=>{ const d=new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; };
+  const todayYmd = ()=>{ const d=new Date(); return `${d.getFullYear()}-${d.getMonth()+1}`.replace(/-(\d)$/, (_,x)=>`-0${x}`) + `-${z2(d.getDate())}`; };
 
   function playSoundOverlap(src){ try{ new Audio(src).play(); }catch(e){} }
   function showPopup(text, ms=1000){
@@ -164,6 +164,9 @@
   const ballState = {}; // { [i]: { swiped, assigned: 1|2|null, multiplier: 1|2, isSide: boolean, wrapper } }
   let score1=0, score2=0;
 
+  // ★ ACE 状態
+  let breakAce = false;
+
   // バッジ更新（A/B 共通で「Side」表記）
   function updateBadge(num){
     const label = document.getElementById(`multi${num}`);
@@ -244,6 +247,39 @@
       ballState[i] = { swiped:false, assigned:null, multiplier:1, isSide:false, wrapper:wrap };
       attachSwipeHandlers(wrap, i);
     }
+
+    // === 9番の右に ACE ボタン ===
+    const aceWrap = document.createElement("div");
+    aceWrap.className = "ace-wrapper";
+    aceWrap.id = "aceWrap";
+
+    const aceBtn = document.createElement("button");
+    aceBtn.type = "button";
+    aceBtn.className = "ace-btn";
+    aceBtn.id = "aceBtn";
+    aceBtn.setAttribute("aria-pressed", "false");
+    aceBtn.title = "ブレイクエース";
+
+    const aceImg = document.createElement("img");
+    aceImg.src = "/image/ball_ace.png";         // ★ 指定のパス
+    aceImg.alt = "Break Ace";
+
+    const aceCap = document.createElement("div");
+    aceCap.className = "ace-label";
+    aceCap.textContent = "ACE";
+
+    aceBtn.appendChild(aceImg);
+    aceWrap.appendChild(aceBtn);
+    aceWrap.appendChild(aceCap);
+    grid.appendChild(aceWrap);
+
+    // トグル動作
+    aceBtn.addEventListener("click", ()=>{
+      breakAce = !breakAce;
+      aceBtn.classList.toggle("active", breakAce);
+      aceBtn.setAttribute("aria-pressed", breakAce ? "true" : "false");
+      if (typeof showPopup === "function") showPopup(breakAce ? "ブレイクエース" : "解除");
+    });
   }
 
   // ====== スワイプ（左右固定） ======
@@ -318,6 +354,15 @@
       updateBadge(i);
     }
     score1=0; score2=0; updateScoreDisplay();
+
+    // ★ ACE のリセット
+    breakAce = false;
+    const aceBtnEl = document.getElementById("aceBtn");
+    if (aceBtnEl){
+      aceBtnEl.classList.remove("active");
+      aceBtnEl.setAttribute("aria-pressed","false");
+    }
+
     const box = document.getElementById("postRegistActions");
     if (box) box.style.display="none";
   }
@@ -355,7 +400,19 @@
       const st = ballState[i] || {assigned:null, multiplier:1, isSide:false};
       balls[i] = { assigned: st.assigned, multiplier: st.multiplier }; // 送信フォーマットは従来踏襲
     }
-    return { game_id:generateGameId(), date:dateStr, rule_id, shop_id, player1_id:p1_id, player2_id:p2_id, score1:s1, score2:s2, balls };
+    return {
+      game_id: generateGameId(),
+      date: dateStr,
+      rule_id,
+      shop_id,
+      player1_id: p1_id,
+      player2_id: p2_id,
+      score1: s1,
+      score2: s2,
+      balls,
+      // ★ ACE：1/0
+      ace: breakAce ? 1 : 0
+    };
   }
   async function submit(){
     autoAvoidSamePlayers(null);
@@ -389,7 +446,7 @@
         body: JSON.stringify(payload),
       });
       const raw = await res.text();
-      let data; try{ data=JSON.parse(raw); }catch{ throw new Error("Invalid JSON: "+raw.slice(0,160)); }
+      let data; try{ data=JSON.parse(raw); }catch{ throw new Error("Invalid JSON: "+raw.slice(0,200)); }
 
       if (data && data.success){
         showPopup("登録しました！");
