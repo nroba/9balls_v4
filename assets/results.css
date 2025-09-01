@@ -16,30 +16,12 @@ body {
   color: #333;
 }
 
-.res-container {
-  max-width: 980px;
-  margin: 16px auto 40px;
-  padding: 0 12px;
-}
-
-.res-h1 {
-  font-size: 20px;
-  margin: 12px 0 16px;
-}
-
-.res-empty {
-  color: #666;
-  margin: 16px 0;
-}
+.res-container { max-width: 980px; margin: 16px auto 40px; padding: 0 12px; }
+.res-h1 { font-size: 20px; margin: 12px 0 16px; }
+.res-empty { color: #666; margin: 16px 0; }
 
 .res-date-block { margin: 20px 0; }
-
-.res-date-title {
-  font-weight: 700;
-  font-size: 18px;
-  margin: 8px 0 12px;
-  color: #111;
-}
+.res-date-title { font-weight: 700; font-size: 18px; margin: 8px 0 12px; color: #111; }
 
 .res-game-card {
   background: #fff;
@@ -70,98 +52,102 @@ body {
 .res-spacer { height: var(--cell-size); }
 
 .row-label {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  font-size: var(--name-font);
-  font-weight: 600;
-  color: #222;
-  padding-left: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex; align-items: center; justify-content: flex-start;
+  font-size: var(--name-font); font-weight: 600; color: #222; padding-left: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.ball-head,
-.score-head {
-  height: var(--cell-size);
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 700;
-  color: #666;
-  background: #f0f0f0;
-  border: 1px solid #e2e2e2;
-  border-radius: 8px;
+.ball-head, .score-head {
+  height: var(--cell-size); display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; color: #666;
+  background: #f0f0f0; border: 1px solid #e2e2e2; border-radius: 8px;
 }
 
 .cell {
   height: var(--cell-size);
   min-width: var(--cell-size);
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: #fafafa;
-  border: 1px solid #e8e8e8;
-  font-size: var(--cell-font);
-  user-select: none;
+  display: grid; place-items: center;
+  border-radius: 10px; background: #fafafa; border: 1px solid #e8e8e8;
+  font-size: var(--cell-font); user-select: none;
 }
 
 /* 通常 */
-.cell[data-owned="p1"] {
-  background: #eaf3ff;
-  border-color: #d2e6ff;
-}
-.cell[data-owned="p2"] {
-  background: #fff0ea;
-  border-color: #ffd9c9;
-}
+.cell[data-owned="p1"] { background: #eaf3ff; border-color: #d2e6ff; }
+.cell[data-owned="p2"] { background: #fff0ea; border-color: #ffd9c9; }
 
-/* サイド（濃色）… multiplier=2 */
-.cell[data-owned="p1-side"] {
-  background: #bcd6ff;
-  border-color: #96c1ff;
-}
-.cell[data-owned="p2-side"] {
-  background: #ffc2a6;
-  border-color: #ff9f75;
-}
+/* サイド（濃色） */
+.cell[data-owned="p1-side"] { background: #bcd6ff; border-color: #96c1ff; }
+.cell[data-owned="p2-side"] { background: #ffc2a6; border-color: #ff9f75; }
 
 /* 右端の得点セル */
 .score-cell {
-  height: var(--cell-size);
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  border: 1px solid #ddd;
-  background: #f9f9f9;
-  font-weight: 700;
+  height: var(--cell-size); display: grid; place-items: center;
+  border-radius: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: 700;
 }
 .score-cell[data-side="p1"] { color: #205dbe; } /* 青系 */
 .score-cell[data-side="p2"] { color: #c85a20; } /* 橙系 */
 
-.res-legend {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  font-size: 12px;
-  color: #666;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  background: #f1f1f1;
-  border: 1px solid #e8e8e8;
-  color: #555;
-}
-.badge.strong { font-weight: 700; }
-
 @media (max-width: 520px) {
   :root { --cell-size: 32px; --cell-font: 16px; --name-font: 13px; --score-width: 52px; }
   .res-board { grid-template-columns: 96px repeat(9, minmax(var(--cell-size), 1fr)) var(--score-width); }
+}
+
+
+/* =========================================================
+   results.php 用スタイル（インライン <style> を移設）
+   ========================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #f6f7f9; color: #222; }
+body {
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
+  line-height: 1.45;
+}
+
+/* スマホ基準の横幅コンテナ */
+.container { max-width: 520px; width: 100%; margin: 0 auto; padding: 12px; }
+
+/* 日付セクション */
+.date-section { margin: 8px 0 16px; }
+.date-header {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 10px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  font-weight: 700; position: sticky; top: 0; z-index: 1;
+}
+.date-sub { font-size: 12px; color: #555; margin-left: auto; }
+
+/* カード */
+.cards { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+.card { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+
+/* カードヘッダ */
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.round-tag {
+  font-size: 12px; font-weight: 700; padding: 3px 8px; background: #edf2ff; color: #2643a2;
+  border: 1px solid #cdd8ff; border-radius: 999px; white-space: nowrap;
+}
+.meta { font-size: 12px; color: #555; margin-left: auto; text-align: right; }
+
+/* プレイヤーブロック */
+.players { display: grid; grid-template-columns: 1fr 64px 1fr; gap: 8px; align-items: stretch; }
+.player { padding: 10px; border-radius: 12px; background: #f1f5f9; display: grid; grid-template-rows: auto auto; gap: 6px; position: relative; min-width: 0; }
+.player.p1 .name { color: #2563eb; }
+.player.p2 .name { color: #db2777; }
+.name { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score { font-size: 22px; font-weight: 800; }
+
+/* VS */
+.vs { display: grid; place-items: center; font-size: 12px; color: #666; }
+.vs > span { padding: 6px 10px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa; font-weight: 700; }
+
+/* ACEバッジ（スコア右上） */
+.ace-badge {
+  position: absolute; top: -6px; right: -6px; transform: translate(-2px, 2px);
+  font-size: 10px; font-weight: 900; padding: 4px 6px; border-radius: 999px;
+  background: #fef3c7; color: #92400e; border: 1px solid #fde68a; box-shadow: 0 1px 2px rgba(0,0,0,.08);
+}
+
+/* 小画面微調整 */
+@media (max-width: 380px) {
+  .score { font-size: 20px; }
+  .name { font-size: 13px; }
 }
