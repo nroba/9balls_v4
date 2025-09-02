@@ -1,0 +1,147 @@
+/* =========================================================
+   9Balls Top Menu — Tone aligned with results.css
+   コンポーネント名は既存（.btn-card 等）を維持しつつ、
+   配色/影/角丸/フォントを results.css に合わせて再設計
+   ========================================================= */
+
+/* ====== Colors & Base (results.css のトーンに合わせる) ====== */
+:root{
+  --bg: #f6f7f9;            /* results.css の --res-bg に合わせる */
+  --fg: #222;               /* 同: --res-fg */
+  --muted: #555;            /* 同: --res-muted */
+  --bd: #e5e7eb;            /* 同: --res-border */
+  --card: #fff;             /* 同: --res-card-bg */
+
+  --chip-bg:#edf2ff;        /* results のチップ色を軽く引用 */
+  --chip-fg:#2643a2;
+  --chip-bd:#cdd8ff;
+
+  --blue:#2563eb;           /* P1系のアクセント想定 */
+  --pink:#db2777;           /* P2系のアクセント想定 */
+
+  --shadow-1: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-2: 0 2px 10px rgba(0,0,0,.06);
+  --btn-shadow: 0 2px 6px rgba(0,0,0,.10);
+  --btn-shadow-hover: 0 8px 18px rgba(0,0,0,.14);
+
+  --radius-card: 16px;
+  --radius-btn: 12px;
+
+  --maxw: 980px;            /* results に合わせた標準幅 */
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+body{
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap{
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 16px 14px 28px;
+}
+
+/* ====== Header ====== */
+.site-header{
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom: 12px;
+}
+.brand{ display:flex; align-items:center; gap:12px; }
+
+.crest-img{
+  width:46px; height:46px; border-radius:12px;
+  /*background:#fff;*/ /*border:1px solid #bfc9d9;*/
+  object-fit:contain;
+  box-shadow: var(--shadow-2);
+}
+.titles .heading{ margin:0; font-size:22px; font-weight:800; }
+.titles .tagline{ margin:2px 0 0; font-size:12px; color:var(--muted); }
+
+.top-settings{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:40px; height:40px; border-radius:10px;
+  background:#fff; border:1px solid var(--bd);
+  box-shadow: var(--shadow-2);
+  text-decoration:none;
+}
+.btn-icon{ width:24px; height:24px; object-fit:contain; }
+
+/* ====== Panel ====== */
+.panel{
+  background: var(--card);
+  border:1px solid var(--bd);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-1);
+  padding: 12px;
+}
+.panel-head{
+  display:flex; align-items:baseline; gap:8px;
+  padding: 4px 6px 10px;
+  border-bottom:1px dashed var(--bd);
+}
+.panel-title{ font-size:16px; font-weight:800; }
+.panel-sub{ margin-left:auto; font-size:12px; color:var(--muted); }
+
+/* ====== Menu Grid ====== */
+.menu{
+  display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px;
+}
+@media (min-width:640px){
+  .menu{ grid-template-columns:1fr 1fr; }
+}
+
+/* ====== Button Card (results.css のカード感に合わせる) ====== */
+.btn-card{
+  display:block; text-decoration:none; color:inherit;
+  background: #fff;
+  border:1px solid var(--bd);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-2);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.btn-card:hover,
+.btn-card:focus{
+  transform: translateY(-1px);
+  box-shadow: var(--btn-shadow-hover);
+  border-color:#cfd6e4;
+  outline: none;
+}
+
+.btn-body{
+  display:flex; align-items:center; gap:12px;
+  padding: 14px;
+}
+.btn-leading{
+  width:46px; height:46px; border-radius:10px;
+  display:grid; place-items:center;
+  background:#f1f5f9;
+  border:1px solid var(--bd);
+  font-size:22px;
+}
+.btn-text{ flex:1; min-width:0; }
+.btn-title{ font-size:18px; font-weight:800; letter-spacing:.2px; }
+.btn-sub{ margin-top:2px; font-size:12px; color:var(--muted); }
+.btn-path{
+  margin-top:4px; font-size:11px; color:#667085;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  opacity:.95;
+}
+.btn-trail{ margin-left:auto; font-size:20px; font-weight:900; color:#3b3f51; }
+
+/* ====== Footer ====== */
+.site-footer{
+  display:flex; align-items:center; gap:10px;
+  margin-top: 14px; font-size:12px; color:var(--muted);
+  border-top:1px dashed var(--bd); padding-top:10px;
+}
+.site-footer .sep{ opacity:.6; }
+.link-min{ color:#394150; text-decoration:none; border-bottom:1px dotted #9aa3b2; }
+.link-min:hover{ border-bottom-color:#6b7280; }
