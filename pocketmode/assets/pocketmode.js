@@ -638,6 +638,24 @@
     if (!payload.player2_id) missing.push("プレイヤー2");
     if (missing.length){ alert("未選択："+missing.join(" / ")); return; }
 
+    // --- 確認ダイアログ ---
+    const p1Text = p1Sel?.selectedOptions?.[0]?.textContent || "Player 1";
+    // "Code：Name" 形式なら Name だけ抽出、そうでなければそのまま
+    const p1Name = p1Text.includes("：") ? p1Text.split("：")[1] : p1Text;
+
+    const p2Text = p2Sel?.selectedOptions?.[0]?.textContent || "Player 2";
+    const p2Name = p2Text.includes("：") ? p2Text.split("：")[1] : p2Text;
+
+    const msg = `以下の内容で登録します。よろしいですか？\n\n` +
+                `${p1Name}: ${payload.score1}\n` +
+                `${p2Name}: ${payload.score2}`;
+
+    if (!confirm(msg)) {
+      registBtn?.classList.remove("clicked");
+      return;
+    }
+    // ----------------------
+
     try{
       const res = await fetch(API_FINALIZE, {
         method:"POST", headers:{ "Content-Type":"application/json" },
